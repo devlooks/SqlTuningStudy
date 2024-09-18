@@ -1,1 +1,257 @@
 # sqlpStudy
+
+복습
+
+1. 인덱스 구조 하이라키 구조
+lev 	: root - branch - leaf 
+count	: 400  - 400^2 	- 400^3 
+
+2. root 노드 선정 과정
+
+query요청 -> Index 확인 -> root 선정 => Optimizer판단
+
+3. 노드당 Row의 갯수
+
+root Node, branch Node 하위 노드 또는 하위 leaf 노드 수만큼의 Row 갯수
+root Node, branch Node는 정렬X
+leafNode 는 정렬 O 
+
+인덱스 탐색 방식
+수직 탐색 -> root부터 내려오면서 leaf에서 수평 탐색
+수평 탐색 -> leaf의 왼쪽 끝 또는 오른쪽 끝 부터 탐색(asc, desc)
+
+탐색 횟수 = 수직 탐색 횟수 + 수평 탐색 횟수 + 테이블 접근 횟수
+
+4. Index Range Scan 의 사용 기준
+
+전체 내용의 10% 이상 -> Full Scan
+전체 내용은 10% 이하 -> Random Access 유리
+
+5. Sequential 과 Random 차이
+
+Sequential
+순차 
+leaf Block 읽을때 비용이 적다.
+Multi-block 으로 읽을수 있따.
+
+Random Access
+블록당 하나 테이블 엑세스 (RowId)
+효율을 낮고, 높은 비용필요
+Single-block 
+클러스터링 팩터가 낮을 수록 성능이 좋다
+인덱스 수직탐색 (DBA(Data Block Address) 사용)
+
+- 비용 순서
+수평 < 수직 < Random Access 많이듬.
+
+- Optimizer가 인덱스 구성 컬럼인데도 불구하고 인덱스를 사용 안하는 경우
+	1. 인덱스 컬럼 가공( 좌변 컬럼 가공 )
+	2. null 검색 -> 인덱스 컬럼 null 조건
+	3. 부정 검색 -> != 또는 <> 로 조건을 사용할 경우
+	
+		1. 	문자 = 숫자	(숫자 -> 문자) 변환
+ 			문자 = 날짜	(문자 -> 날짜) 변환
+			날짜 = 숫자 	(에러)
+
+
+6. 인덱스 스캔 방식
+
+	1. Index Range Scan
+		- 항상 빠르진 않다, 스캔 범위, 엑세스 횟수에 따라 성능이 판단
+		- 인덱스 선두 컬럼을 Where에 조건절로 적용
+		- 인트는 없으며, Index 힌트 사용한다.
+		
+	2. 실행 계획은 위 -> 아래 -> 안 -> 밖 순으로 읽는다.
+	
+		ex) --------- 1
+			 -------- 2
+			--------- 3
+			 -------- 4
+			--------- 5
+			   ------ 6
+			    ----- 7
+				 ---- 8
+		읽는 순서 : 2 -> 1 -> 4 -> 3 -> 8 -> 7 -> 6 -> 5
+		
+	3. Index Full Scan
+		- 인덱스가 있으나 선두 컬럼이 아닐 때
+		- 적당한 인덱스가 없을 때
+		- 쿼리 결과 양이 적을 수록 Index Full Scan
+		- 쿼리 결과 양이 높을 수록 Full Table Scan
+
+		힌트 : Index
+		ex ) select /*+ Index(e ix_사원_성별_연봉) */ 
+				*
+			 from ~
+			 where ~
+		
+		
+	4. Index Unique Scan
+		- 단건 조회시 유용
+		- Unique 인덱스이며, Where 조건절에 등치 조건으로만 사용할 수 있다
+		ex) select * from ~ where 사번 = '001';
+		
+	5. Index Skip Scan
+		- 조회 조건 컬럼이 선두 컬럼이 아닐 때
+		- Distinct 가 낮을때 ex) 남/여
+		- 인덱스 선두 컬럼이 범위 조건일때 (between, like.. )
+		
+		힌트 : /*+ index_ss(e ix_사원_x01) */
+		
+	6. Index Fast Full Scan
+		- 전체 인덱스 Full Scan
+		- Multi-block I/O 사용 가능
+			- db_file_multiblock_read_count 의 갯수 만큼 읽을 수 있음
+		- 물리 순서로 read (논리 순서 보장(인덱스 순서) X)
+		- 성능 좋음
+		
+		힌트 : /*+ index_ffs
+		
+	Index Full Scan 		VS 		Index Fast Full Scan
+	- 인덱스 구조 에 따라 				- 세그먼트 전체 스캔
+	- 순서 보장						- 순서 보장 X
+	- Single-block I/O				- Multi-block I/O
+	- 병렬스캔 X						- 병렬스캔O
+	- 인덱스 미포함 컬럼 사용시에도 사용	- 인덱스 반드시 포함 컬럼 사용시에만 사용 가능
+	
+	Oracle DBMS 구조
+    				Oracle------------------------------------------------------------------------|
+    				|					        Instance----------------------------------------------------|
+    				|					        |						          **SGA**                								|
+Client -> 	Server Process 		|	Shared Area------|	Data Buffer | Cache	Redo Log Buffer	  |
+           (PGA)				      |	| libaray Cache  |										                    |
+            |					        |	|Dictionary Cache|	java Pool			Large Pool		          |
+            |					        |	|----------------|										                    |
+            |					        |-----------------------------------------------------------|
+    				| <PMON>	<SMON>	<CKPT>	               <DBWR>    		         <LGWR>         |
+    				|-----------------------------------------------------------------------------|
+						|-------------|					 	                  ||						       ||
+						|parameterfile|					            ------------------------------------------
+						|-------------|					            |DataBase  |Control files |Redo Log Files|			
+        														            |Data File |			        | 			       |
+                    														------------------------------------------			
+                        																|Archieved Log Files|
+	
+	Shared Area
+		- library Cache : 실행계획 캐싱
+		- Dictionary Cache : 스키마, 테이블 구조 캐싱
+		
+	DataBuffer Cache => DBWR => DataFile => Table, Index 등.. 저장
+	Redo Log Buffer  => LGWR => Redo Log Files => Log 저장
+	
+	Archieved Log File => 복구용
+	
+	Controlfiles => 경로 데이터
+	
+	PMON : 안쓰는 Process 제거
+	SMON : 롤백, 복구 시사용
+		1. ckpt => 주기적 기록
+		2. RollForward : DB 최신 상태 복구
+		3. RollBack : 비정상 종료 트랜젝션 취소, 이전 상태로 되돌림
+		
+	
+8. 로그 버퍼 구동 순서
+	
+	- Redo Log Buffer -> DML -> Data Buffer Cache -> Redo Log Files -> Commit -> Data File
+	- 로그 버퍼 : append 방식 Write -> 빠르고 적은 부하
+	
+		Random Access 부하
+	
+			RowID 구조
+			- 데이터 오브젝트
+			- 데이터 파일 번호
+			- 블록 번호
+			- 로우 번호 
+				-> 오 파 블 로
+			
+	- Lock과 latch의 차이
+		1. 데이터 보호 vs 메모리 보호
+		2. 선입 선출 	 vs 우선순위
+		
+	- Buffer Pinning
+		=> 동일 Block Read 시 PGA저장(Age-out 제어,Pin 설정) 바로 찾아가는것.
+	
+	- Clustering Factor
+		** 조회쿼리의 탐색 순서와 인덱스의 정렬순서가 동일 할수록 낮아진다**
+		- c.p 낮은 경우						- c.p 높은 경우
+			- 블록 수 근접						- 로우 수 근접
+			- 랜덤액세스 효율 높아짐				- R.A 효율 낮아짐
+			-버퍼 피닝 잘됨
+			 -> R.A 발생이 적음
+	
+	- 비용 계산 
+		- blevel 								--> 수직 탐색 (리프블록 도달 전, 루트, 브랜치 블록 개수)
+			+ (리프블록수 * 인덱스 선택도)  		--> 인덱스 수평 탐색
+			+ (클러스터링 팩터 * 유효테이블 선택도)	--> 테이블 Random Access 비용이
+			
+		- 유효 인덱스 선택도 : 조건절 만족, 예상 비율 (전체 인덱스 레코드 중)
+		- 유효 테이블 선택도 : 테이블 방문 비용 (전체 레코드중)
+		
+9. Table Full Scan, Index Scan 손익 분기점.
+	
+	- 클러스터링 팩터에 의해 좌우
+	- 기본 
+		- 전체 10% 이상 => Table Full Scan
+		- 전체 10% 이하 => Index Scan
+	- 클러스터링 팩터 극복 방법
+		1. Clustered Index
+		2. IOT(Indexed Organized Table)
+		
+10. 테이블 Random 액세스 최소화 튜닝
+
+	1. 인덱스 선두 컬럼은 반드시 Where 조건에 포함
+	2. 필터 조건 종료
+		- 인덱스 컬럼 포함 : 인덱스 필터 조건
+		- 인덱스 컬럼 포함 X : 테이블 필터 조건
+		
+	3. 엑세스 과정
+		- 수직 탐색 => 리프노드(인덱스 순 정렬) => 테이블 엑세스
+		
+	4. 인덱스 컬럼 추가 => Range Scan 유도
+	
+11. 조인 쿼리에서 액세스 과정
+
+	- 인덱스 만으로 처리
+		1. 조회 퀄럼이 인덱스 컬럼내 존재 Where 조건 구성이 인덱스 컬럼으로 구성이
+		
+	- 테이블 1 인덱스 -> 테이블 1 엑세스 -> (조인 조건 컬럼) -> 테이블 2 인덱스 -> 테이블 2 엑세스 
+	
+12. IOT (Indexed Organized Table)
+	- 테이블 데이터 및 구조를 인덱스에 저장
+	- 정렬은 pk 중심 (기존은 RowID이나, 인덱스 구조 저장으로 자주 update되어 정렬 시 성능이 낮아짐)
+	- 크기 작고 NL 조인 반복 룩업
+	- 컬럼 적고 건수 많은 테이블에만 사용시에도
+	- 넓은 범위 조회시
+	- 데이터 입력, 조회 패턴이 서로 다른 테이블
+	
+13. 클러스터 인덱스
+	- 키값이 같은 레코드 - 특정 키 값과 한 블록이 맵핑 되는 형태
+	- 레코드가 블록을 넘어갈시, 새로운 블록에 할당 되며 클러스터 체인으로 연결 됨.
+	- 해당 저장 첫번째 데이터블록
+	- 키 => Unique 해야한다.
+	- 넓은 범위 (C.F 매우 좋아야함)
+		- 새로운 값 자주 입력 => 새로운 클러스터 할당
+		- 수정 자주 발생 클러스터 자주이동 
+		
+14. 인덱스 스캔 효율
+	
+	- 시퀀셜 엑세스 스캔 효율 높음
+	- 랜덤 엑세스 스캔 효율 낮음
+	
+	- 인덱스 군집성이 높을수록 효율 높음
+	- 인덱스 매칭도 높을 수록 효율 높음
+	
+	- 등치 조건이 아닐떄 효율 낮음
+	
+	- Between 조건 -> IN-List 로 변경
+	- Index Skip Scan => 비효율 해소
+	- 범위조건 남용 X
+	
+	
+15. 인덱스 매칭도.
+
+	driving 조건 : 인덱스 선두 컬럼 조건에
+	check 조건 : 조건에 맞지 않은 데이터를 탐색하는 조건.
+	
+	일반적 : 범위 조건(Between, Like) + 인덱스 (driving 조건) => 이후 등치 조건 (check 조건)
+		
