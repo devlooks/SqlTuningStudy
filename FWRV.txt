@@ -1,5 +1,3 @@
-# sqlpStudy_First Week ReView
-
 복습
 
 1. 인덱스 구조 하이라키 구조
@@ -63,14 +61,14 @@ Single-block
 		
 	2. 실행 계획은 위 -> 아래 -> 안 -> 밖 순으로 읽는다.
 	
-		ex) --------- 1
+		ex) 	--------- 1
 			 -------- 2
 			--------- 3
 			 -------- 4
 			--------- 5
 			   ------ 6
 			    ----- 7
-				 ---- 8
+			     ---- 8
 		읽는 순서 : 2 -> 1 -> 4 -> 3 -> 8 -> 7 -> 6 -> 5
 		
 	3. Index Full Scan
@@ -82,8 +80,8 @@ Single-block
 		힌트 : Index
 		ex ) select /*+ Index(e ix_사원_성별_연봉) */ 
 				*
-			 from ~
-			 where ~
+		     from ~
+		     where ~
 		
 		
 	4. Index Unique Scan
@@ -115,22 +113,22 @@ Single-block
 	- 인덱스 미포함 컬럼 사용시에도 사용	- 인덱스 반드시 포함 컬럼 사용시에만 사용 가능
 	
 	Oracle DBMS 구조
-    				Oracle------------------------------------------------------------------------|
-    				|					        Instance----------------------------------------------------|
-    				|					        |						          **SGA**                								|
-Client -> 	Server Process 		|	Shared Area------|	Data Buffer | Cache	Redo Log Buffer	  |
-           (PGA)				      |	| libaray Cache  |										                    |
-            |					        |	|Dictionary Cache|	java Pool			Large Pool		          |
-            |					        |	|----------------|										                    |
-            |					        |-----------------------------------------------------------|
-    				| <PMON>	<SMON>	<CKPT>	               <DBWR>    		         <LGWR>         |
-    				|-----------------------------------------------------------------------------|
-						|-------------|					 	                  ||						       ||
-						|parameterfile|					            ------------------------------------------
-						|-------------|					            |DataBase  |Control files |Redo Log Files|			
-        														            |Data File |			        | 			       |
-                    														------------------------------------------			
-                        																|Archieved Log Files|
+				Oracle--------------------------------------------------------------------------|
+				|			Instance----------------------------------------------------|
+				|			|						**SGA**								|
+	Client -> 		Server Process 		|	Shared Area------|	Data Buffer Cache	Redo Log Buffer	|
+				(PGA)			|	| libaray Cache  |										|
+				|			|	|Dictionary Cache|	java Pool			Large Pool		|
+				|			|	|----------------|				    |
+				|			|-----------------------------------------------------------|
+				| <PMON>	<SMON>	<CKPT>	                  <DBWR>    		   <LGWR>		|
+				|-------------------------------------------------------------------------------|
+						|-------------|					 	||						 ||
+						|parameterfile|					------------------------------------------
+						|-------------|					|DataBase  |Control files |Redo Log Files|			
+														|Data File |			  | 			 |
+														------------------------------------------			
+																|Archieved Log Files|
 	
 	Shared Area
 		- library Cache : 실행계획 캐싱
@@ -150,7 +148,7 @@ Client -> 	Server Process 		|	Shared Area------|	Data Buffer | Cache	Redo Log Bu
 		3. RollBack : 비정상 종료 트랜젝션 취소, 이전 상태로 되돌림
 		
 	
-8. 로그 버퍼 구동 순서
+7. 로그 버퍼 구동 순서
 	
 	- Redo Log Buffer -> DML -> Data Buffer Cache -> Redo Log Files -> Commit -> Data File
 	- 로그 버퍼 : append 방식 Write -> 빠르고 적은 부하
@@ -187,7 +185,7 @@ Client -> 	Server Process 		|	Shared Area------|	Data Buffer | Cache	Redo Log Bu
 		- 유효 인덱스 선택도 : 조건절 만족, 예상 비율 (전체 인덱스 레코드 중)
 		- 유효 테이블 선택도 : 테이블 방문 비용 (전체 레코드중)
 		
-9. Table Full Scan, Index Scan 손익 분기점.
+8. Table Full Scan, Index Scan 손익 분기점.
 	
 	- 클러스터링 팩터에 의해 좌우
 	- 기본 
@@ -197,7 +195,7 @@ Client -> 	Server Process 		|	Shared Area------|	Data Buffer | Cache	Redo Log Bu
 		1. Clustered Index
 		2. IOT(Indexed Organized Table)
 		
-10. 테이블 Random 액세스 최소화 튜닝
+9. 테이블 Random 액세스 최소화 튜닝
 
 	1. 인덱스 선두 컬럼은 반드시 Where 조건에 포함
 	2. 필터 조건 종료
@@ -209,14 +207,14 @@ Client -> 	Server Process 		|	Shared Area------|	Data Buffer | Cache	Redo Log Bu
 		
 	4. 인덱스 컬럼 추가 => Range Scan 유도
 	
-11. 조인 쿼리에서 액세스 과정
+10. 조인 쿼리에서 액세스 과정
 
 	- 인덱스 만으로 처리
 		1. 조회 퀄럼이 인덱스 컬럼내 존재 Where 조건 구성이 인덱스 컬럼으로 구성이
 		
 	- 테이블 1 인덱스 -> 테이블 1 엑세스 -> (조인 조건 컬럼) -> 테이블 2 인덱스 -> 테이블 2 엑세스 
 	
-12. IOT (Indexed Organized Table)
+11. IOT (Indexed Organized Table)
 	- 테이블 데이터 및 구조를 인덱스에 저장
 	- 정렬은 pk 중심 (기존은 RowID이나, 인덱스 구조 저장으로 자주 update되어 정렬 시 성능이 낮아짐)
 	- 크기 작고 NL 조인 반복 룩업
@@ -224,7 +222,7 @@ Client -> 	Server Process 		|	Shared Area------|	Data Buffer | Cache	Redo Log Bu
 	- 넓은 범위 조회시
 	- 데이터 입력, 조회 패턴이 서로 다른 테이블
 	
-13. 클러스터 인덱스
+12. 클러스터 ㅇㄴ덱스
 	- 키값이 같은 레코드 - 특정 키 값과 한 블록이 맵핑 되는 형태
 	- 레코드가 블록을 넘어갈시, 새로운 블록에 할당 되며 클러스터 체인으로 연결 됨.
 	- 해당 저장 첫번째 데이터블록
@@ -233,7 +231,7 @@ Client -> 	Server Process 		|	Shared Area------|	Data Buffer | Cache	Redo Log Bu
 		- 새로운 값 자주 입력 => 새로운 클러스터 할당
 		- 수정 자주 발생 클러스터 자주이동 
 		
-14. 인덱스 스캔 효율
+13. 인덱스 스캔 효율
 	
 	- 시퀀셜 엑세스 스캔 효율 높음
 	- 랜덤 엑세스 스캔 효율 낮음
@@ -248,7 +246,7 @@ Client -> 	Server Process 		|	Shared Area------|	Data Buffer | Cache	Redo Log Bu
 	- 범위조건 남용 X
 	
 	
-15. 인덱스 매칭도.
+14. 인덱스 매칭도.
 
 	driving 조건 : 인덱스 선두 컬럼 조건에
 	check 조건 : 조건에 맞지 않은 데이터를 탐색하는 조건.
