@@ -114,21 +114,21 @@ Single-block
 	
 	Oracle DBMS 구조
 				Oracle--------------------------------------------------------------------------|
-				|			Instance----------------------------------------------------|
-				|			|						**SGA**								|
-	Client -> 		Server Process 		|	Shared Area------|	Data Buffer Cache	Redo Log Buffer	|
-				(PGA)			|	| libaray Cache  |										|
-				|			|	|Dictionary Cache|	java Pool			Large Pool		|
-				|			|	|----------------|				    |
-				|			|-----------------------------------------------------------|
-				| <PMON>	<SMON>	<CKPT>	                  <DBWR>    		   <LGWR>		|
+				|		Instance--------------------------------------------------------|
+				|		|			**SGA**					|
+	Client -> 		Server Process 	|	Shared Area------| Data Buffer | Cache Redo Log Buffer	|
+				(PGA)		|	| libaray Cache  |					|
+				|		|	|Dictionary Cache| java Pool   | Large Pool		|
+				|		|	|----------------|					|
+				|		|---------------------------------------------------------------|
+				| <PMON>	<SMON>	<CKPT>	            <DBWR>        <LGWR>		|
 				|-------------------------------------------------------------------------------|
-						|-------------|					 	||						 ||
-						|parameterfile|					------------------------------------------
-						|-------------|					|DataBase  |Control files |Redo Log Files|			
-														|Data File |			  | 			 |
-														------------------------------------------			
-																|Archieved Log Files|
+						|-------------|	 	      ||	     ||
+						|parameterfile|    ------------------------------------------
+						|-------------|	   |DataBase  |Control files |Redo Log Files|			
+								   |Data File |		     | 		    |
+								   ------------------------------------------			
+								           |Archieved Log Files|
 	
 	Shared Area
 		- library Cache : 실행계획 캐싱
@@ -171,14 +171,14 @@ Single-block
 	
 	- Clustering Factor
 		** 조회쿼리의 탐색 순서와 인덱스의 정렬순서가 동일 할수록 낮아진다**
-		- c.p 낮은 경우						- c.p 높은 경우
+		- c.f 낮은 경우						- c.f 높은 경우
 			- 블록 수 근접						- 로우 수 근접
-			- 랜덤액세스 효율 높아짐				- R.A 효율 낮아짐
+			- 랜덤액세스 효율 높아짐					- R.A 효율 낮아짐
 			-버퍼 피닝 잘됨
 			 -> R.A 발생이 적음
 	
 	- 비용 계산 
-		- blevel 								--> 수직 탐색 (리프블록 도달 전, 루트, 브랜치 블록 개수)
+		- blevel 					--> 수직 탐색 (리프블록 도달 전, 루트, 브랜치 블록 개수)
 			+ (리프블록수 * 인덱스 선택도)  		--> 인덱스 수평 탐색
 			+ (클러스터링 팩터 * 유효테이블 선택도)	--> 테이블 Random Access 비용이
 			
