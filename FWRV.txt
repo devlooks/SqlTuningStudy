@@ -1,6 +1,6 @@
 복습(First Week ReView)
 
-1. 인덱스 구조 하이라키 구조
+1. 인덱스 구조 트리 구조
 lev 	: root - branch - leaf 
 count	: 400  - 400^2 	- 400^3 
 
