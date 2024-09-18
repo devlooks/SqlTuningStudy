@@ -1,4 +1,4 @@
-# sqlpStudy
+# sqlpStudy_First Week ReView
 
 복습
 
