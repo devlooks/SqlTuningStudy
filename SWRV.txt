@@ -1,0 +1,249 @@
+인덱스 스캔 효율
+- Sequential 엑세스 효율은 선택도가 좌우한다
+- 인덱스 컬럼 조건 모두 등치 일때 효율 높음
+- 인덱스 접근 table Access시, 비효율 발생
+- 인덱스 선두 컬럼 등치 조건 + 등치 외 조건 인덱스 => 비효율X
+
+Between 조건 -> IN-List로
+1. 인덱스 선두 컬럼 : Between 조건 일떄 
+	- IN-List 갯수 적을 수록 효율 높음
+	- 수직 탐색의 결과 갯수 만큼
+	- 수평 비효율 < 수직 비효율이 더 효율 낮음
+2. IN-List 보다 Between 이 더 좋을떄
+	- 앞의 체크조건의 변별력이 높은 경우
+	
+변별력이란?
+	변별력 : Distinct (종류 많은수록 좋음)
+	선택도 : 1 / Distinct(낮을 수록 좋음)
+	카디널리티 : 선택도 * 총로우수 (낮을수록 좋음)
+	Clustering Factor : (낮을 수록 좋음)
+	-> Distinct 외 다 낮을 수록 좋다.
+	
+소트 오퍼레이션 
+	- 부분 범위 처리 : order by 있을시, 안됨 (전체 정렬후 출력 하기 때문)
+	- 인덱스 구성 방식 : 등치 -> 정렬 -> 나머지 순으로 (소트연산 생략을 위함)
+	
+Index Skip Scan을 이용한 비효율 해소
+	1.
+	인덱스 판매 월 + 판매 구분
+		ex) 
+		where 판매구분 = 'A'
+		and 판매월 between ~ => and 판매월 in (~~) 로 변경 비효율 해소
+		
+	2. select /*+ INDEX_SS(T 월별 고객 ~) */ => 인덱스 스킵 스캔 활용 비효율 해소
+	
+	차이점 : 1번 은 수직 탐색, 2번은 수평 탐색으로 진행.
+	
+인덱스 효율 판단
+	like 조건 
+	=> AND 주문일자 LIKE :ORDER_DT||%
+	
+	1. 변경
+	=> where :ORDER_DT IS NOT NULL
+	   UNION ALL
+	   where :ORDER_DT IS NULL
+	   
+	2. NVL(:ORDER_DT, 주문일자)
+	
+	==> OR Expand 활용
+	
+범위 조건이 2개시, 드라이비 ㅇ조건 컨트롤
+	- 의도적으로 좌변 컬럼에 컬럼 편집 함수 사용 (ex)trim(~
+	
+Between과 like의 스캔 범위 비교
+	- like는 모든 포함범위 탐색(불필요 탐색 포함 가능성 높음)
+	- between은 시작과 끝점을 탐색 가능 ( 등치 조건과 같음)
+	=> like 가 비효율이 높은 편
+	
+선분 이력 인덱스 스캔효율
+	인덱스 구성 
+		최근 이력 : 종료 일자 + 시작 일자
+		과거 이력 : 시작 일자 + 종료 일자
+		인덱스 수정 불가능 => /*+ index_desc(a idx_x01) */ + rownum 사용
+		중간 지점 처리 : rownum 사용
+		
+B-Tree 인덱스 
+	대량 삭제 
+		index Skew 발생
+			- 빈블록인 free-list 반환 안함
+			- 재사용 가능 하나, 다시 채울때까지 인덱스 효율 낮음
+		Index Sparse
+			- 인덱스 밀도가 떨어져 다시 채울때까지 인덱스 효율 낮음
+			
+		인덱스 재생성
+			- 인덱스 분할에 대한 경합 높을떄
+			- 자주 사용 인덱스 효율 높일떄
+			- 대량 delete 후, 다시 레코드 입력까지 오랜기간 소요될떄,
+			- 레코드 수 일정, 인덱스가 계속 커질떄
+			
+비트맵 인덱스	
+	- Distinct 개수가 적을떄
+	- 적은 용량 차지, 여러개 대용량 테이블에 유용
+	- 팩트성 테이블
+	- Random Access 성능 향상X(R.A = 비트맵 인덱스 동일)
+	- 단독 보다는 여러 비트맵 인덱스 동시 사용 권장
+	- DW 환경에서 주로 사용
+	
+함수 기반 인덱스	
+	- 데이터 입력 수정 => 부하 발생 높음
+	- User-Defined => 부하 극심 (꼭 필요한 경우만)
+	
+리버스 인덱스
+	- 일련변호, 주문일시와 같은 컬럼에 사용
+		- 순차적 입력값 증가 => leaf 블록에만 적제
+		- Right Growing 
+	- Insert가 심할때, 인덱스 블록 경합 => 초당 트랙잭션 처리량이 낮아질때 사용
+	- 거꾸로 저장 => 데이터 고르게 분포하도록 함
+	- 등치 조건에만 사용 (부등호, 범위 검색에는 사용 X)
+	
+결합 인덱스 구성
+	
+	고려 사항
+	- 조건절 항상 사용
+	- 등치 조건과
+	- 카디널리티가 좋은가?
+	- 소트 오퍼레이션 생략
+	- 쿼리 수행빈도
+	- 업무상 중요도
+	- 클러스터링 팩터
+	- 데이터량
+	- DML 부하 
+	- 저장 공간
+	- 인덱스 관리 비용
+	
+비용 비교
+	Random Access( 테이블 ) > 수직 탐색 > 수평 탐색( 인덱스 )
+	
+NL 조인
+	- Look-up table의 조인 컬럼 => Index 필요한
+	- 인덱스 prefetch
+		- 읽을 걸 예상되는 leaf Block 미리 읽어 Buffer Cache 적제
+	- 테이블 Prefetch
+		- 인덱스 경우 테이블 접근 => 다른 블록도 buffer Cache에 적제
+		- Buffer Pinning 발생 => Random Access 효율 높임
+		
+Prefetch
+	- 한벙에 여러개의 Single Block I/O 동시 수행빈도
+	- Multi block I/O => Prefetch 기술 중 하나
+		=> 익스 텐트 내 블록 동시 잃음
+	- 서로 다른 익스텐트 위치 블록을 미리 적재
+	
+Batch I/O
+	- 일반적은 NL 조인 과정
+		- driving Idx -> driving Table -> lookup idx -> lookup table
+	- Batch I/O는 해당 과정에서 lookup idx까지의 결과 량을 PGA에 저장
+		저장 내용을 바탕으로 데이터 가져옴 (Cache에 없으면 Disk에서) 그 후 join 수행
+	- 정렬 순서
+		- 100% Buffer 히트시 정렬 이전과 동일
+		- Disk I/O 발생시 상이함.
+		
+Sort Merge 조인
+	
+	- 단계 : 소트(조인기준) => 머지(조인 컬럼 기준 양쪽 집합 머지)
+	- 실시간 인덱스 생성 효과
+	- 양쪽 집합 정렬 후 NL 조인과 같은 방식
+	- PGA 사용
+	- 조인 컬럼 인덱스 유무 상관X
+	- 부분 범위 
+	- 검색 조건에 따라 일량 좌우한다
+	- 스캔위주
+	- 효율적 사용
+		- First Table에 소트연산 대체 인덱스 존재 또는 미리 정렬
+		- 조인 조건이 등치 조건이 아닐때
+		
+	Sort 종류
+		join
+		order by
+		group by
+		Aggregation
+		Unique
+		window
+
+Hash 조인
+	- 조인 중 작은 집합 -> Hash Area 적재 (Build Input)
+	- 큰 집합 => 해시 테이블 탐색 ( 해시 함수 이용, Probe Input)
+	- 등치 조건과
+	- Random Access X
+	- 소트 X
+	- Build Input => Hash Area에 다 들어가는지가 관건
+	- PGA에서 작업 하므로 래치 연산 필요 없음
+	
+	- 사용 기준 
+		- Build Input -> Hash Area에 들어가야함
+		- 해시키 중복 X
+		- NL 비효율 발생 할때
+		- Random Access 부하가 심할때
+		- 소트 부하 실할떄
+		- 수행빈도 적고 , 수행시간을 길며, 대용량 테이블 조인시
+		
+Hash 조인 실행 계획
+	ex)
+		select /*+ LEADING(D) USE_HASH(E) */
+		~
+		from dept d, emp e
+		where d.deptno = e.deptno
+		
+		실행 계획 =>
+			select ~
+				hash join
+					table Access full Dept (Driving (Build Input))				
+					table Access full emp  (Lookup (Probe Input))
+					
+	ex) 동일 쿼리 /*+ ORDERED USE_HASH(E) USE_HASH(X) NO_SWAP_JOIN_INPUT(X) */
+	
+		실행 계획
+			HASH JOIN
+				HASH JOIN => Build
+					TABLE ACCESS ~ Dept (D) => Build
+					TABLE ACCESS ~ Emp (E) => Probe
+				TABLE ACCESS ~ T_EMP (X) => Probe
+		
+		ORDERED => 조인 순서 제어
+			ex) from D, E, X 일 경우만
+			=> D, E, X 순으로 조인과
+			USE_HASH(E) => D,E와 조인시 hash 조인
+			USE_HASH(X) => E,X와 조인시 hash 조인과
+			
+		NO_SWAP_JOIN_INPUTS(X)
+			=> 기술 테이블 Probe로 사용
+			(바꾸지 않고 (NO_SWAP) 나중에 읽는다(Probe Input))
+		SWAP_JOIN_INPUTS
+			=> 기술 테이블 Build로 사용
+			(바꿔서(SWAP) 먼저 읽는다(Build Input))
+	
+	ex) 동일 쿼리 /*+ ORDERED USE_HASH(E) USE_HASH(X) SWAP_JOIN_INPUTS(X) */
+	
+		실행계획(계단형) 
+			HASH JOIN
+				TABLE ACCESS ~ T_EMP -> Build input
+				HASH JOIN -> Probe Input
+					TABLE ACCESS ~ Dept -> build Input`
+					TABLE ACCESS ~ EMP  -> Probe Input
+	
+		주의점 :
+			- Probe Input 이 완료 되어야 Build Input과 조인 가능 (Probe Input 선행 되어야함)
+			
+조인 순서의 중요성
+	NL 조인 : 적은 쪽 => 큰쪽으로 
+	
+	Sort Merge 조인 : 일반적으로 큰 => 작은 테이블 유리
+		Disk Sort => 큰 테이블 Driving 유리
+		PGA Sort => 작은 테이블 Driving 유리
+		
+	Hash 조인과
+		Driving => 적은 테이블 (Hash Area 기준)
+		
+	Outer 조인 
+		Outer 테이블 조인 (논리에 위반되는 힌트 무시) 
+		Outer 조인 일시, Out 기준 테이블이 무조건 driving 테이블로이용
+		ex) leading 힌트로 outer 테이블 먼저 읽도록 유도
+		
+쿼리 읽는 순서 위반 케이스
+	스칼라 쿼리 -> 우선 실행계획
+	hash join(3개) -> Build Input 2개 이상 존재
+	쿼리 변환 push_subg
+	
+하나의 컬럼에 대응 사용 쿼리
+	- 스칼라 서브 
+	- 동일 주소값 이용한
+	- outer 조인으로 풀기
