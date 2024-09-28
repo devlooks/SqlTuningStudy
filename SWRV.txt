@@ -1,3 +1,5 @@
+-- Second Week ReView.txt
+
 인덱스 스캔 효율
 - Sequential 엑세스 효율은 선택도가 좌우한다
 - 인덱스 컬럼 조건 모두 등치 일때 효율 높음
@@ -38,12 +40,15 @@ Index Skip Scan을 이용한 비효율 해소
 	like 조건 
 	=> AND 주문일자 LIKE :ORDER_DT||%
 	
-	1. 변경
-	=> where :ORDER_DT IS NOT NULL
-	   UNION ALL
-	   where :ORDER_DT IS NULL
+	1. 
+		:ORDER_DT 컬럼이 nullable일 경우
+			=> where :ORDER_DT IS NOT NULL
+			   UNION ALL
+			   where :ORDER_DT IS NULL
 	   
-	2. NVL(:ORDER_DT, 주문일자)
+	2. 
+		not null 주문일자가 not null일 경우
+			=> NVL(:ORDER_DT, 주문일자) 
 	
 	==> OR Expand 활용
 	
