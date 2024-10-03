@@ -1,3 +1,5 @@
+Third Week ReView
+
 데이터 복제를 통한 소계
  
 	1.	select ~ from emp a
