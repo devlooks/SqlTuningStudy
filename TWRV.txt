@@ -1,0 +1,485 @@
+데이터 복제를 통한 소계
+ 
+	1.	select ~ from emp a
+		(select rownum no
+		from dual
+		connect by level <= 2) b;
+		=> 모든 데이터 2개씩 생성
+	
+	2. 	select ~
+			, decode (no, 1, to_char(empno),2, '부서계') 사번
+			, sal
+		from
+		=> 소계용 데이터 컬럼 생성
+	   
+	3. select ~
+		from emp a, ~ 
+		group by deptno, no, decode(no, 1, to_char(empno),2, '부서계') order by 1, 2
+	   => group by 통한 소계 데이터 생성
+	   
+	==> rollup 하나로 진행 완료, => rollup(deptno, empno)
+	
+Grouping Sets
+		
+	group by substr(order_dt,1,8), cust_no
+	union all
+	group by substr(order_dt, 1, 6), cust_no;
+	
+	=> group by grouping sets(
+					(to_char(order_dt, 'yyyymmdd'), cust_no),
+					(to_char(order_dt, 'yyyymm'), cust_no)
+					)
+						
+상호 배타적 관계 조인
+	
+	데이터 상태에 따라 조인 데이상이 다른 경우
+	
+		1. 외래키 분리 방법
+			ex)
+			select ~
+			from 상품결제 a, 온라인권 b, 실권 c
+			where ~
+			and b.온라인권번호(+) = a.온라인권 번호
+			and c.실권번호(+) = a.실권번호
+			
+		2. 외래키 통합방법(결제일자 + 상품권 구분)
+			ex)
+			from 상품권결제 a, 온라인권 b, 실권 c 
+			and b.온라인권번호(+) = decode(a.상품권변호, '1', a.상품권번호)
+			and c.실권번호(+) = decode(a.실권번호, '2', a.실권번호)
+			
+			=> decode 사용이유 default 설정 X => null return 으로, 데이터 반환X
+			
+		3. 외래키 통합(상품권 구분 + 결제일자)
+		
+			where a.상품권구분 = '1'
+			and a.결제일자 between ~
+			union all
+			where a.상품권구분 = '2'
+			and a.결제일자 between ~
+			
+	최종 출력 건에 대해서만 조인
+	
+		select ~
+		from (select r_id, no 
+				from (select ~
+						from 주문
+						where ~
+						order by ~) -> subq1
+				where rownum <= 41 -> subq2
+			) x, 주문 O, 고객 C, 사원 E, 부서 d -> mainq
+		where x.no between ~
+		
+		1. subq1 -> sorting 신경써야함
+		2. subq2 -> 부분처리
+		3. mainq -> 테이블 Join 순으로 처리
+		-> 이 순서대로해야 효율이 좋음
+		
+선분 이력
+	
+	1. 최종 이력 구하기
+		ex)
+		from 고객 c, 고객등급이력 h
+		where (상수조건)
+		and (조인조건)
+		and :dt between h.시작일자 and h.종료일자
+		
+	2. 최종 이력을 위한 row중에 날자 일자가 있는 경우
+		ex)
+		from 고객 c, 고객등급이력 h
+		where (상수조건)
+		and (조인조건)
+		and c.최종이력일자 between h.시작일자 and h.종료일자
+		
+	3. 직전 선분 구하기
+		ex)
+		from 고객 c, 고객등급이력 h
+		where (상수조건)
+		and (조인조건)
+		and h.시작일자 < c.최종변경이랒
+		and h.종료일자 >= to_char(to_date(c.최종변경일자) - 1), 'yyyymmdd')
+		
+점 이력 조회
+	
+	ex) 특정 상품의 최종값
+	
+	1.	
+	select *
+	from (select * from 이력 where 상품ID = '~' order by 변경일자 desc, 순번 desc) 
+	where rownum <= 1;
+	
+	2.
+	select *
+	from (select ~ 
+		, row_number() over(partition by 상품ID order by 변경일자 desc, 순번 desc) R_NUM
+		from ~)
+	where r_num = 1;
+	
+	전체 상품별 상태코드별 최종값
+	1.
+	select ~
+	from (select ~
+			, max(상품가격) over(partition by 상품id, 상태코드) 최대가격
+			, min(상품가격) over(partition by 상품id, 상태코드) 최소가격
+			, round(avg(상품가격) over(partition by 상품id, 상태코드)) 평균 가격
+			, row_number() over(partition by 상품id, 상태코드 order by 변경일자 desc, 순번 desc)) RNUM
+		from ~)
+	where rnum = 1;
+	
+	2.
+	select 상품ID, 상태코드
+		, MAX(상품가격) 최대 가격
+		, MAX(순번) KEEP (DENSE_RANK LAST ORDER BY 변경일자)
+		~
+		, MAX(상품가격) KEEP( ~~ ORDER BY 변경일자, 순번) 최종상품가격
+	from 상품변경이력
+	group by 상품ID, 상태코드
+	
+	3.
+	원장과 이력 테이블의 조인
+	from ~
+	where ~
+	and (H.변경일자, H.순번) = 
+		(select 변경일자, 순번 from (select ~ from ~
+									where 상품ID = P.상품ID -- 12c NEW feature
+									order by ~
+									)
+							where rownum <= 1)
+		order by ~
+		
+	4. 
+	select ~
+	from 상품 D
+		,(select ~
+			, row_number() over (partition by 상품ID order by 변경일자 desc, 순번 desc) RNUM
+		  from ~
+		  ) H
+	where (조인 조건)
+	and (구분 조건)
+	and rnum = 1;
+	
+	Top-N 쿼리 작동시
+		- Stopkey 미작동
+			- rownum 컬럼에 alias사용 및 alias로 where 절 조건 사용하면 작동 X
+	
+
+옵티마이저 종류
+
+	- 규칙 기반(RBO) -> 규칙기반 실행계획
+		- 규칙 : 경로별 우선순위, 인덱스 구조 => 연산자, 조건절 순으로..
+	- 비용 기반(CBO) -> 비용기반 실행계획
+		- 비용 : 쿼리 수행 일량, 시간 비용 산정 => 테이블, 인덱스 통계 정보 기반
+		
+	SQL 최적화 과정
+		Parser( syntax, semantic 체크) 
+				-> Optimizer
+					(Query Transformer : 표준 형태 변환
+					Estimator : 비용계산
+					Plan Generator : 실행 계획 생성)
+				-> Row-Source Generator : 코드 형태 포멧팅
+				-> SQL Engine : SQL 실행
+	
+	최적화 목표
+		1) 전체 속도 => 처음 ~ 끝까지 읽는 것을 전제
+			=> alter system set optimizer_mode = all_rows; => /*+ all_rows */
+		2) 우선 전달
+			=> alter system set optimizer_mode = first_rows; => /*+ first_rows */
+			
+옵티마이저 행동에 대해 영향 미치는 요소
+	1) 연상자 사용
+	2) 옵티마이징 팩터 : 인덱스, IOT, 클러스터링, 파티셔닝, mv
+	3) DBMS 제약설정
+		ex) PK,FK, Check, Not null
+	4) 힌트 
+	5) 통계 정보
+	6) 옵티마이저 관련 파라미터
+	7) DBMS 버전 종류
+	
+옵티마이저의 한계
+	1) 옵티마이징 팩터 부족
+		- 효과적인 인덱스, IOT, 클러스터링, 파티셔닝 등..
+	2) 통계 정보의 부정확성
+		- 정확한 통계 정보 제공
+		- 컬럼 분포 고려 없이 컬럼 히스토그램 생성 => 유지비용 높아짐
+		
+	3) 바인드 변수 => 균등 분포 가정
+	4) 비현실적인 가정
+		- Single Block I/O와 Multi Block I/O 비용 같게 평가
+		- 데이터 블록의 캐싱효과 미고려
+		
+	5) 규칙의존 CBO 	- 부분 규칙
+					- First_mode => order by 대체 인덱스 무조건 사용
+					
+	6) 하드웨어 성능 특성
+		-> 개발 H/W에 최적화
+		-> H/W 사용 다를떄 실행 계획 다르게 수립 가능성 높음
+		
+옵티마이저 통계 유형
+	- 테이블, 인덱스, 컬럼, 시스템 통계
+	- 선택도, 카디널리티, 히스토그램, 비용
+	
+	선택도
+		- 선택도 -> 카디널리티 -> 비용 -> 액세스 방식 , 조인 순서, 조인 방법 결정
+		- 히스토그램 O -> 선택도 산정
+		- 히스토그램 X -> 분포 균일 가정 -> 선택도 산정
+		- 선택도 = 1 / Distinct Value
+				= 1 / num Distinct
+		- 카디널리티 = 총로우수 X 선택도
+				   = 총로우수 / Distinct Value 수
+				   
+		PK = 1 (카디널리티)
+		일반 속성 > 1
+		
+	카디널리티
+		- Distinct => 10 => 0.1
+			ex) row 1000 => 100 개 결과 예상
+		- select * from 사원 where 부서 = :부서 and 직급 = :직급;
+			- 직급 : 부, 차, 과, 대리, 사원 => 1/5(선택도) = 0.2
+			- 1000 Row수 x 0.1(부서) x 0.2(직급) = 20건
+			
+		- 카디널리티 = 총로우수 * 선택도
+					= 총로우수 / Distinct Value 수
+					
+	히스토그램
+		- 도수분포 -> Distinct 낮음 -> hash Bucket 별 개수
+		- 높이 균형 -> Distinct 높음 -> hash Bucket 별 갯수
+									=> 각 버킷 (1/버킷수) *100 %의 데이터 분포
+									
+		- 12c 추가 히스토그램
+			- 상위 도수분포 : 많은 레코드 => n 개 값의 빈도수
+			- 하이브리드 : 도수 분포와 높이 균등의 특성 결합
+			
+	비용 
+		- Cost 기반 최적화
+		- 쿼리 수행 일량, 시간으로 예상
+		- I/O 비용 (I/O 비용모델 X => Multi-block)
+		- CPU
+		- CHOOSE : 시스템 통계 존재 -> cpu 비용모델X => I/O 비용 모델
+		
+		- 인덱스 경우 테이블 액세스 비용
+			비용 = blevel 						- 인덱스 수직 탐색
+				+ 리프블록수 X 유효인덱스 선택도		- 인덱스 수평 탐색
+				+ 클러스터링 팩터 X 유효 테이블 선택도 	- 테이블 Random Access
+				
+Full Scan에 의한 테이블 엑세스 비용
+	
+	- I/O Call 횟수로 비용 계산
+	- Multi block I/O
+	- 전체 블록 / Multi Block 단위
+	
+옵티마이저 힌트
+
+	- 인덱스 작성 (/*+ */), (--+ ~)
+	- Query 변환
+	- 조인 순서 leading, ordered
+	- 조인 방식 : use_nl, use_hash, use_merge
+	
+	힌트 무시 경우
+		- 문법적 틀림
+		- 의미적 틀림
+		
+		- 잘못된 참조 사용
+		- 없는 테이블 Alias 사용
+		- 없는 인덱스 명
+		- 논리적 불가능 엑세스 경로
+			- 등치조건 X hash join 유도
+			- Nullable 컬럼 -> 인덱스 이용 => count
+		- 버그
+		- 쿼리 변환
+		
+힌트 종류
+
+	전체 최적화 : all_rows, first_rows
+	
+	엑세스 경로 : full, index, index_desc
+				index_ffs, index_ss
+				batch_table_access_by_rowid
+				no_ ~
+	쿼리변환 : no_query_transformation
+			: use_concat
+			: no_expand
+			: merge, no_merge
+			: unnest, no_unnest
+			: push_pred, no_push_pred
+			: push_subq, no_push_subq
+			
+	조인 우선 순위 : ordered, leading
+	조인 방법 : use_nl, use_hash, nl_sg, hash_aj, hash_sj
+	병렬 : parallel
+	기타 : append, qb_name, driving_site
+
+서브 쿼리 Unnesting
+	- 중첩된 서브쿼리(nested subquery)
+		- 메인-부모 : 서브-자식 => 종속 또는 계층 관계
+		- 논리적 관계 => 필더 방식
+		- 최적 수행 속도 => 보장X
+	
+	- 옵티마이저 선택  
+		1. 조인문 변환 => 최적화 => Unnesting
+		2. 원본 쿼리 이용 => 최적화 => Filter Operation
+	
+Unnesting의 이점
+	- 서브쿼리를 메인 쿼리오 ㅏ같은 레벨로
+	- 다양항 엑세스 경로, 조인 메서드 평가 가능
+	- 더 나은 실행 계획
+	
+	- Unnesting 하지 X 경우 => Filter => Full Scan에 최적
+								서브쿼리를 별도의 서브 플랜, In, Exist 조건 변경
+								메인 쿼리의 레코드 값을 넘기며 서브 쿼리 반복 수행
+	- Unnesting 결과 항상 좋은것은 X
+	- 옵티마이저 Unnesting 여부 Cost 산정후 실행
+	- 힌트 : no_unnest -> filter(변경X)
+			unnest -> 조인 (변경 o)
+			
+서브 쿼리가 M, Non-Unique 인덱스인 경우
+
+	- 서브(1) : 메인(M)
+	
+		- 1 -> Non-Unique인 경우 => 옵티마이저 1인결 확신 X => 서브쿼리 unnesting시 서브쿼리 M(서브쿼리테이블) 수준으로 출력
+			
+			select ~ from dept
+			where deptno in (select deptno from emp
+			변경 =>
+			from (select deptno from emp ) a, dept b
+			where a.deptno = b.deptno
+			
+		- 1 -> PK인 경우 => 옵티마이저가 1인걸 확신 -> emp(메인테이블) 수준 출력
+		
+			sort unique 오퍼레이션 실행 => 1쪽 집합 만듬 => 조인 
+			메인 테이블 드라이빙테이블 => 세미조인 방식으로 조인
+			
+push_subq
+	- 구동 순서 : 메인 쿼리 실행 -> 서브 쿼리 실행
+		- 메인 쿼리 실행하면서 각 행에 대한 서브 쿼리 구동
+		- 연관 컬럼이 인덱스일 경우
+			- 인덱스 연산 후 결과의 각행에 대한 subq 작업
+				- 인덱스 연산 순서 : 메인 테이블 인덱스 연산 -> main 과 sub간 조인 인덱스 연산 
+		- 인덱스 아닌 경우
+			- 메인 테이블 연산 마친후 각행에 대한 subq 작업
+
+View Merging
+	ex) select *
+		from (select ~ where job = '~') a,
+			(select ~ where loc = '~') b
+		where a.deptno = b.deptno
+		
+	=>
+		select *
+		from emp a, dept b
+		where a.job = '~'
+		and b.loc = '~'
+		and a.deptno = b.deptno
+		
+	=> View Merging을 통한 다양한 경로 확보(옵티마이저)
+	
+	- 단순 뷰는 Merging 해도 성능이 나쁘지 않음
+	- 복자한 연산 포함 => 성능 떨어짐(ex) group by, select-list에 distinct
+	- 뷰 Merging 불가의 경우
+		- 집합 연상자
+		- connect by
+		- rownum
+		- select-list + 집계함수
+		- 분석 함수
+	- 옵티마이저 뷰 처리
+		- 1차적 뷰 merging
+		- 상황에 따라 조건절 pushing 시도
+	
+	- pushing 기술
+		- pushdown -> main 조건 -> subq block으로
+		- pullup -> sub 조건 -> mainq block으로 또는 다른 subq block으로
+		- 조인조건 pushdown -> nl 조건중 Outer조건 -> Inner 쪽으로, 밀어 넣음
+		
+	예시 - 조건절 Push down
+		select /*+ push_pred(a) */ ~
+		from (select ~ ) a,
+		where deptno = 30; // 해당 조건 위의 서브쿼리로 이동
+		
+		select  ~
+		from (select /*+ push_pred */ ~ ) a,
+		where deptno = 30; // 해당 조건 위의 서브쿼리로 이동
+		
+		select /*+ push_pred(e) */ ~
+		from (select /*+ no_merge */ ~ ) e
+			, scott.dept d
+		where e.deptno = d.deptno
+		and d.deptno = '30'; // 해당 조건 위의 서브쿼리로 이동
+		
+		- 조건절 Pull up
+		select /*+ push_pred(e2) */ ~
+		from (select ~ ) e1
+			,(select ~ ) e2
+		where e1.deptno = e2.deptno
+		
+		=> select ~
+			from (select ~ where deptno = ~ ) e1,
+			from (select ~ where deptno = ~ ) e2
+			
+	조인 조건 Pushdown
+		- 조인 조건 => subq로 밀어 넣기
+		- group by Subq에 밀어넣기 11g에 생김
+		
+		select /*+ push_pred(E) leading(D) use_nl(E) */
+		from (
+			select /*+ no_merge */ ~
+			from ~
+			-- where deptno = D.deptno // 메인 쿼리의 조인 조건 이동
+			group by deptno
+			) E, dept D
+		where ~
+		and E.deptno = D.deptno
+		
+		-> /*+ leading(D) push_pred(E) use_nl(E) */ -> 변경해도 동일
+		
+		12c 부터
+		
+		select * 
+		from dept D
+		LATERAL (select /*+ no_merge */ -> 사용 부분 
+					~
+					where deptno = D.deptno
+					group by deptno)
+					) E
+		where ~
+
+조건절 이행
+	- 불필요한 조인 제거 
+		- 1:M 중 1을 읽지 X경우
+		- nl : M의 컬럼이 Not null fk -> 1쪽 조인 불필요
+		- outer : 1:M 중 1 읽지 X -> M쪽 컬럼 FK, Not null 조건 X 가능 => 단 11g부터
+		
+	- OR 조건 Union 변환
+		select * from ~
+		where sal = 3000
+		or deptno = 200
+		
+		=> 
+		
+		where sal = 3000
+		union all
+		where deptno = 200
+		LNNVL(Sal = 3000); -> sal = 3000이 null X 때만 반환
+		
+	- 기타 쿼리 변환
+		- count 시, null 포함 X -> 조건절에 is not null 추가 => count
+		
+		/*+ use_concat */ => or expand 사용
+		/*+ no_expand */ => or expand 사용X
+		
+	- between :max and :min
+		-> mn <= mx
+		-> mn > mx
+		
+	- full Scan 시 -> 카디널리티 높은 것을 먼저 조건 사용 -> 비교연산 줄임
+		
+		
+		
+		
+	
+		
+	
+	
+	
+						
+			
+	
+	
