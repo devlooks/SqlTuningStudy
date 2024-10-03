@@ -1,4 +1,4 @@
-복습(First Week ReView)
+First Week ReView
 
 1. 인덱스 구조 트리 구조
 lev 	: root - branch - leaf 
