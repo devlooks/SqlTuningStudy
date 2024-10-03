@@ -1,4 +1,4 @@
--- Second Week ReView.txt
+Second Week ReView
 
 인덱스 스캔 효율
 - Sequential 엑세스 효율은 선택도가 좌우한다
