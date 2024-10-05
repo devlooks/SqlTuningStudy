@@ -1,0 +1,59 @@
+/* 문제)  다음 조건을 보고 아래 OLTP용  SQL을 튜닝하시오.
+T_CUST54   : 총  10만건
+     CUST_NO    VARCHAR2(6)   <== PK
+     CUST_NM    VARCHAR2(50)
+     CUST_TYPE  VARCHAR2(4) 
+     기타 추가 칼럼 많음
+   
+T_ORDER54  : 총 300만건
+   ORDER_NO   VARCHAR2(7)  <== PK
+   CUST_NO    VARCHAR2(6)
+   ORDER_DT   VARCHAR2(8)
+   ORDER_TYPE VARCHAR2(3)
+   기타 추가 칼럼 많음
+
+T_CD54 : 총999건
+   CD       VARCHAR2(3) <== PK
+   CD_TYPE  VARCHAR2(1)
+*/
+
+CREATE INDEX shin.IX_T_CUST54_01 ON shin.T_CUST54(CUST_TYPE);
+CREATE INDEX shin.IX_T_ORDER54_001 ON shin.T_ORDER54(CUST_NO, ORDER_TYPE);
+CREATE INDEX shin.IX_T_CD54 ON shin.T_CD54(CD, CD_TYPE);
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('shin', 'T_CUST54');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('shin', 'T_ORDER54');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('shin', 'T_CD54');
+
+ALTER SESSION SET STATISTICS_LEVEL=ALL;
+
+SELECT /*+ LEADING (C O) USE_NL(O) */ 
+       C.CUST_NO, C.CUST_NM, C.CUST_DIV_CD, O.ORDER_NO, O.ORDER_DT
+FROM T_CUST54 C,   T_ORDER54 O
+WHERE C.CUST_TYPE   = 'C050'
+  AND O.CUST_NO     = C.CUST_NO
+  AND EXISTS (SELECT /*+ NO_UNNEST NO_PUSH_SUBQ*/ 1 
+              FROM   T_CD54
+              WHERE  CD      = C.CUST_DIV_CD
+               AND   CD_TYPE = '2'
+            )
+           ;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'ALLSTATS LAST -ROWS'));
+/*
+------------------------------------------------------------------------------------------------------------
+| Id  | Operation                              | Name             | Starts | A-Rows |   A-Time   | Buffers |
+------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                       |                  |      1 |    120 |00:00:00.02 |   16533 |
+|*  1 |  FILTER                                |                  |      1 |    120 |00:00:00.02 |   16533 |
+|   2 |   NESTED LOOPS                         |                  |      1 |  15000 |00:00:00.02 |   16529 |
+|   3 |    NESTED LOOPS                        |                  |      1 |  15000 |00:00:00.01 |    1529 |
+|   4 |     TABLE ACCESS BY INDEX ROWID BATCHED| T_CUST54         |      1 |    500 |00:00:00.01 |     476 |
+|*  5 |      INDEX RANGE SCAN                  | IX_T_CUST54_01   |      1 |    500 |00:00:00.01 |       8 |
+|*  6 |     INDEX RANGE SCAN                   | IX_T_ORDER54_001 |    500 |  15000 |00:00:00.01 |    1053 |
+|   7 |    TABLE ACCESS BY INDEX ROWID         | T_ORDER54        |  15000 |  15000 |00:00:00.01 |   15000 |
+|*  8동
+      GROUP BY CUST_NO
+      ) O, T_CUST41 C
+WHERE C.CUST_CD = '76A00' -> 1)
+ AND  O.CUST_NO = C.CUST_NO; -> 2)
