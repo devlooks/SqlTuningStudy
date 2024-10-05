@@ -1,0 +1,204 @@
+# 사원
+
+/*
+  테이블  T_EMP23
+           EMP_NO      VARCHAR2(5)
+           EMP_NAME    VARCHAR2(50)
+           DEPT_CODE   VARCHAR2(2)
+           DIV_CODE    VARCHAR2(2)
+   
+ 인덱스 정보 SHIN.T_EMP23(DEPT_CODE)
+ 
+ DEPT_CODE : 99종류
+ DIV_CODE  : 999종류
+ 전체 데이터 건수 1,000만건
+ 최종 결과치 : 326
+
+*/
+
+ALTER SESSION SET STATISTICS_LEVEL = ALL;
+
+/* 1)아래의 실행계획을 보고,  튜닝하세요.
+  - SQL 변경 또는 인덱스 변경 가능 */
+
+SELECT EMP_NO, EMP_NAME, DEPT_CODE, DIV_CODE
+FROM T_EMP23
+WHERE DEPT_CODE BETWEEN '09'  AND '11'
+ AND  DIV_CODE = '028';
+
+/* 2)아래의 SQL은 우리회사에서 가장 많이 수행되는
+     TOP 1 SQL 이다.  아래 SQL 하나만을 위해 최적의 튜닝을 하세요.
+  - SQL 변경 또는 인덱스 변경 가능 */
+
+SELECT EMP_NAME, DEPT_CODE, DIV_CODE
+FROM T_EMP23
+WHERE DEPT_CODE BETWEEN '09'  AND '11'
+ AND  DIV_CODE = '028';
+
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'IOSTATS LAST'));
+
+/*
+PLAN_TABLE_OUTPUT
+-----------------------------------------------------------------------------
+| Id  | Operation         | Name    | Starts | A-Rows |   A-Time   | Buffers 
+-----------------------------------------------------------------------------
+|   0 | SELECT STATEMENT  |         |      1 |    285 |00:00:01.51 |     100K
+|*  1 |  TABLE ACCESS FULL| T_EMP23 |      1 |    285 |00:00:01.51 |     100K
+-----------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   1 - filter(("DIV_CODE"='028' AND "DEPT_CODE"<='11' AND "DEPT_CODE">='09'))
+ */
+
+
+1) 문제 답
+
+- 인덱스 컬럼 추가, 또는 IN-LIST 방식으로 인덱스 매칭도를 마춘다.
+- 인덱스 매칭도 -> 인덱스 소팅 순서 : DIV_CODE -> DEPT_CODE 순으로 정렬
+- 해당 /*+ INDEX(A IX_T_EMP23_02) */ 인해 TABLE FULL SCAN 에서 RANGE SCAN으로 변경 
+
+CREATE INDEX SHIN.IX_T_EMP23_02 ON SHIN.T_EMP23(DIV_CODE, DEPT_CODE);
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('SHIN', 'T_EMP23');
+
+SELECT /*+ INDEX(A IX_T_EMP23_02) */
+        EMP_NO, EMP_NAME, DEPT_CODE, DIV_CODE
+FROM T_EMP23 A
+WHERE DEPT_CODE BETWEEN '09'  AND '11'
+ AND  DIV_CODE = '028';
+
+2) 문제 답
+
+- 인덱스 컬럼 추가, 또는 IN-LIST 방식으로 인덱스 매칭도를 마춘다.
+- 인덱스 매칭도 -> 인덱스 소팅 순서 : DIV_CODE -> DEPT_CODE -> EMP_NAME 순으로 정렬
+  - EMP_NAME 까지 추가 시킨 이유
+    - EMP_NAME 컬럼도 INDEX에 저장 시킴, TABLE ACCESS 안되도록 제어 시킴
+- 해당 /*+ INDEX(A IX_T_EMP23_03) */ 인해 TABLE FULL SCAN 에서 RANGE SCAN으로 변경 
+
+CREATE INDEX SHIN.IX_T_EMP23_03 ON SHIN.T_EMP23(DIV_CODE, DEPT_CODE, EMP_NAME);
+
+SELECT /*+ INDEX(A IX_T_EMP23_03) */
+       EMP_NAME, DEPT_CODE, DIV_CODE
+FROM T_EMP23 A
+WHERE DEPT_CODE BETWEEN '09'  AND '11'
+ AND  DIV_CODE = '028';
+
+===========================================================================================================================
+
+# 인덱스 매칭도
+
+/* 아래의 SQL과 실행계획을 보고 튜닝하세요.
+    - 인덱스 : 주문지역코드, 주문일자, 주문금액
+    - 인덱스 수정 불가
+    - SQL 수정 가능
+테이블 구성
+   고객번호	    VARCHAR2(17)
+   주문금액	    NUMBER
+   주문지역코드	VARCHAR2(8)
+   주문일자	    VARCHAR2(8)
+   C1	        VARCHAR2(40)
+   C2	        VARCHAR2(40)
+   C3	        VARCHAR2(40)
+   C4	        VARCHAR2(40)
+   C5	        VARCHAR2(40)
+   C6	        VARCHAR2(40)
+전체 건수    : 1,000만건
+주문일자     : 2019.05.24 - 2019.08.31 (100일)
+1일당 10만건
+주문지역코드 : 1, 2, 3, 4, 5 (고르게 분포)
+주문금액     : 1만원 - 100만원 (고르게 분포) 
+
+*/
+SELECT  고객번호, 주문금액, 주문지역코드, 주문일자, C1, C2, C3
+FROM t_주문14  A 
+WHERE 주문금액     BETWEEN 80000 AND 81000
+ AND  주문지역코드 BETWEEN '01' AND '03'
+ AND  주문일자     = '20190710';
+/*
+-----------------------------------------------------------------------------
+| Id  | Operation                   | Name       | Starts | A-Rows |Buffers |
+-----------------------------------------------------------------------------
+|   0 | SELECT STATEMENT            |            |      1 |    100 |  16589 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| T_주문14     |      1 |    100 |  16589 |
+|*  2 |   INDEX RANGE SCAN          | IX_T_주문14_0|      1 |    100 |  16489 |
+-------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   2 - access("주문지역코드">='01' AND "주문일자"='20190710' AND "주문금액">=80000 AND 
+              "주문지역코드"<='03' AND "주문금액"<=81000)
+       filter(("주문일자"='20190710' AND "주문금액">=80000 AND "주문금액"<=81000))
+*/
+
+1) 문제 답
+  - 주문지역코드 : 1, 2, 3, 4, 5 (고르게 분포)
+  - 주문금액     : 1만원 - 100만원 (고르게 분포) 
+  => 각 조건으로 주문지역코드를 in-list 형식으로 사용, 주문금액은 범위가 너무 커, in-list로 사용하기 어려우므로
+  => 주문 지역 코드만 in-list 형식으로 높는다.
+
+SELECT  고객번호, 주문금액, 주문지역코드, 주문일자, C1, C2, C3
+FROM    T_주문14  A 
+WHERE   주문금액    BETWEEN 80000 AND 81000
+ AND    주문지역코드     IN ('01', '02', '03')
+ AND    주문일자          = '20190710'
+;
+
+===================================================================================================================
+
+/*
+PRIMARY KEY : CUST_NO
+인덱스      : CUST_CD + FLAG + DIV
+
+T_CUST22  200만건
+  - CUST_CD   2000개 종류(0001 ~ 2000),  코드당 건수는 약  1만건 
+  - DIV       100개 종류(001 ~ 100),  코드당 건수는 약  2만건
+  - FLAG      100개  종류,    코드당 건수는 약 20만건
+
+-----------------------------------------------------------------------------------------------
+| Id  | Operation                   | Name           | Starts | A-Rows |   A-Time   | Buffers |
+-----------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT            |                |      1 |    125 |00:00:00.01 |     470 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| T_CUST22       |      1 |    125 |00:00:00.01 |     470 |
+|*  2 |   INDEX RANGE SCAN          | IX_T_CUST22_01 |      1 |    125 |00:00:00.01 |     345 |
+-----------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   2 - access("CUST_CD">='190' AND "FLAG"='160' AND "CUST_CD"<='200')
+       filter(("FLAG"='160' AND INTERNAL_FUNCTION("DIV")))
+ 
+  
+아래 SQL을 보고 튜닝 하시오(인덱스 및 SQL변경 가능)
+*/
+
+SELECT *
+FROM T_CUST22 
+WHERE  CUST_CD BETWEEN '190' AND '200' 
+AND   DIV IN ('30', '40', '50', '60', '20')
+AND   FLAG = '160'
+;
+
+1) 문제 답
+  - 현재 인덱스 CUST_CD + FLAG + DIV 임
+  - 인덱스 선두 조건이 범위 조건으로 나머지 조건이 check(filter) 조건으로 변경(index 적용 안됨) -> 비효율 발생
+  - 현재 조건의 등치조건은 FLAG이므로, FLAG를 선두 조건으로 두고 IN-LIST 사용 하는 DIV를 다음 그리고 마지막 범위 조건으로 두어 SORTING한다
+  - CUST_CD + FLAG + DIV -> FLAG + DIV + CUST_CD 로 변경
+
+DROP INDEX SHIN.IX_T_CUST22_01; /* 기존 index 제거*/
+
+CREATE INDEX IX_T_CUST22_01 ON T_CUST22(FLAG, DIV, CUST_CD); /* 인덱스 변경 */
+
+SELECT /*+ GATHER_PLAN_STATISTICS */  
+	*
+FROM T_CUST22 
+WHERE  CUST_CD BETWEEN '190' AND '200' 
+AND   DIV IN ('30', '40', '50', '60', '20')
+AND   FLAG = '160'
+;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'IOSTATS LAST'));
+
+
