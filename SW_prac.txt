@@ -1,0 +1,217 @@
+/*
+T_CUST33 테이블 구조
+   CUST_NO       VARCHAR2(7),
+   CUST_NM       VARCHAR2(50),
+   CUST_CD       VARCHAR2(3),
+   DIV           VARCHAR2(3),
+   FLAG          VARCHAR2(2),
+   C1            VARCHAR2(30),
+   C2            VARCHAR2(30),
+   C3            VARCHAR2(30),
+   C4            VARCHAR2(30),
+   C5            VARCHAR2(30)
+   
+PRIMARY KEY : CUST_NO
+인덱스      : CUST_CD + FLAG + DIV
+
+
+T_CUST33  200만건
+  - CUST_CD   200개 종류(001 ~ 200),  코드당 건수는 약  1만건 
+  - DIV       100개 종류(001 ~ 100),  코드당 건수는 약  2만건
+  - FLAG      10개  종류(01 ~ 10),    코드당 건수는 약 20만건
+
+문제) 화면에 CUST_CD, FLAG,  DIV 3가지 조회 조건이 존재한다.  
+      CUST_CD,  DIV는 필수이지만,  FLAG는 선택 조건이다.
+      3조건이 모두 입력되었을 경우 평균 출력 건수는 11건이며,
+      FLAG가 입력되지 않았을 경우 평균 출력 건수는 100여 건이다.
+      아래의 SQL을 튜닝 하세요.   
+	  
+      FLAG 조건이 들어왔을 경우는 연산자를 LIKE 대신 "="로
+      변경해도 결과값은 동일하다.
+      
+      FLAG가 NULLABLE 일 경우와 NOT NULL 속성일 경우 2가지로 
+      풀어 보세요.
+	  
+	  인덱스 수정 불가, SQL 수정 가능
+*/
+SELECT * FROM T_CUST33 
+WHERE CUST_CD =    :CUST_CD
+  AND FLAG    LIKE :FLAG || '%'
+  AND DIV     =    :DIV 
+;
+
+1) 문제 답
+  인덱스 생성 : CUST_CD + DIV + FLAG
+     ※ 만약 DIV가 BETWEEN 조회였다면 2개 생성
+        (CUST_CD + FLAG + DIV),  (CUST_CD + DIV)
+  
+  SQL 변경 : FLAG 칼럼의 NULL 여부에 따른 2가지 경우
+    1. NOT NULL일 경우
+       --  SQL을 줄이기 위해 아래와 같이 사용 가능
+  
+    SELECT * 
+    FROM T_CUST33 
+    WHERE CUST_CD = :CUST_CD
+      AND FLAG    =  NVL(:FLAG, FLAG)
+      AND DIV     = :DIV 
+
+2) 문제 답
+  - FLAG 칼럼이 NULL 허용일 경우 주관식 기출문제(자주 출제)
+    SELECT * 
+    FROM T_CUST33 
+    WHERE :FLAG IS NOT NULL
+      AND CUST_CD = :CUST_CD
+      AND FLAG    = :FLAG
+      AND DIV     = :DIV 
+      
+    UNION ALL
+    
+    SELECT * 
+    FROM T_CUST33 
+    WHERE :FLAG IS NULL
+      AND CUST_CD = :CUST_CD
+      AND DIV     = :DIV 
+    ;
+
+=========================================================================================
+
+/* 아래 SQL을 OLTP에 최적화 하여 튜닝 하세요.  (인덱스 및 SQL 수정 가능)
+   최종 결과 값 : 18건
+   
+   T_고객23 
+      - 총건수               : 2만건
+      - 고객성향코드 = '920' : 101건
+      - 고객성향코드 종류    : 200종류      
+      - 인덱스 : PK_T_고객23 (고객번호)
+
+   T_주문23
+      - 총 건수: 200만건
+      - 아래 조건의 결과 : 10,000건
+        O.주문일자 LIKE '201701%' AND O.상품코드 = 'P103'   
+      - 인덱스 : PK_T_주문23 (주문번호)   */
+
+SELECT C.고객번호, C.고객명, C.C1, 
+       O.주문번호, O.상품코드, O.주문일자, O.주문수량
+FROM T_고객23 C, T_주문23 O
+WHERE C.고객성향코드 = '920'
+ AND  O.고객번호     = C.고객번호
+ AND  O.주문일자     LIKE '201701%'
+ AND  O.상품코드     = 'P103';
+
+desc t_고객23;
+
+/*
+PLAN_TABLE_OUTPUT
+--------------------------------------------------------------
+| Id  | Operation          | Name   |A-Rows | Buffers | Reads 
+--------------------------------------------------------------
+|   0 | SELECT STATEMENT   |        |    18 |   11363 |  10793 
+|*  1 |  HASH JOIN         |        |    18 |   11363 |  10793 
+|*  2 |   TABLE ACCESS FULL| T_고객23 |   108 |     461 |      0
+|*  3 |   TABLE ACCESS FULL| T_주문23 |  3070 |   10902 |  10793 
+--------------------------------------------------------------
+ */
+
+1) 문제 답
+  - T_고객23 이 T_주문23 보다 건수가 적으므로, 순서대로 읽게 한다. (ORDERED)
+  - T_고객23 테이블 -> 쿼리에 C.고객성향 코드 조건 존재 -> 고객성향코드으로 INDEX 생성
+  - T_주문23 테이블 -> 쿼리에 조인 조건 및 등치조건(상품코드), 주문 일자 코드가 존재 -> (고객번호, 상품코드, 주문일자) INDEX 생성
+
+CREATE INDEX SHIN.IX_T_고객23 ON SHIN.T_고객23(고객성향코드);
+CREATE INDEX SHIN.IX_T_주문23 ON SHIN.T_주문23(고객번호, 상품코드, 주문일자);
+
+SELECT /*+ ORDERED USE_NL(O) INDEX(C IX_T_고객23) INDEX(D IX_T_주문23) */
+       C.고객번호, C.고객명, C.C1
+     , O.주문번호, O.상품코드, O.주문일자, O.주문수량
+FROM T_고객23 C, T_주문23 O
+WHERE C.고객성향코드 = '920'
+ AND  O.고객번호     = C.고객번호
+ AND  O.주문일자     LIKE '201701%'
+ AND  O.상품코드     = 'P103';
+
+=======================================================================================
+
+/*  테이블 
+       - 사원 (약10만건), 부서(100건)
+
+    INDEX 
+       - 사원PK : EMP_NO   
+       - 부서PK : DEPT_CODE
+
+아래 SQL을 튜닝 하세요. (인덱스 및 SQL 변경 가능)
+
+  문제 1) E.DIV_CODE='01'의 결과 : 10건으로 가정하며, D.LOC='01'의 결과가 30건으로 
+          가정하고  튜닝 하세요.
+  문제 2) E.DIV_CODE='01'의 결과 : 100건으로 가정하며, D.LOC='01'의 결과가 3건으로
+          가정하고 튜닝 하세요.
+
+*/
+SELECT  E.EMP_NO,  E.EMP_NAME,  E.DIV_CODE,  
+        D.DEPT_CODE,  D.DEPT_NAME,  D.LOC
+FROM  T_EMP  E,  T_DEPT  D
+WHERE E.DIV_CODE    = '01'
+ AND  D.DEPT_CODE   = E.DEPT_CODE
+ AND  D.LOC         = '01';
+
+/*
+--------------------------------------------------------------------
+| Id  | Operation                    | Name      |A-Rows | Buffers |
+--------------------------------------------------------------------
+|   0 | SELECT STATEMENT             |           |     1 |     965 |
+|   1 |  NESTED LOOPS                |           |     1 |     965 |
+|   2 |   NESTED LOOPS               |           |    10 |     955 |
+|*  3 |    TABLE ACCESS FULL         | T_EMP     |    10 |     950 |
+|*  4 |    INDEX UNIQUE SCAN         | PK_T_DEPT |    10 |       5 |
+|*  5 |   TABLE ACCESS BY INDEX ROWID| T_DEPT    |     1 |      10 |
+--------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   3 - filter("E"."DIV_CODE"='01')
+   4 - access("D"."DEPT_CODE"="E"."DEPT_CODE")
+   5 - filter("D"."LOC"='01')
+*/
+
+1) 문제 답
+  - E.DIV_CODE='01'의 결과 : 10건,   D.LOC='01'의 결과 30건
+  - EMP E -> DEPT D 순서로 읽음 (LEADING(E) USE_NL(D) INDEX(D) INDEX(E))
+  - AND E.DIV_CODE = '01' -> EMP 테이블 인덱스 (E.DIV_CODE)
+  - AND D.DEPT_CODE, AND  D.LOC = '01', AND  D.DEPT_CODE  = E.DEPT_CODE 조인 조건 
+    -> DEPT 테이블 인덱스 (D.DEPT_CODE, D.LOC)
+
+DROP INDEX SHIN.IX_T_EMP_01 ;
+CREATE INDEX SHIN.IX_T_EMP_01 ON SHIN.T_EMP(DIV_CODE);
+
+DROP INDEX SHIN.IX_T_DEPT_01;
+CREATE INDEX SHIN.IX_T_DEPT_01 ON SHIN.T_DEPT(DEPT_CODE, LOC);
+
+SELECT  /*+ LEADING(E) USE_NL(D) INDEX(D) INDEX(E) */
+        E.EMP_NO,  E.EMP_NAME,  E.DIV_CODE,  
+        D.DEPT_CODE,  D.DEPT_NAME,  D.LOC
+FROM  T_EMP  E,  T_DEPT  D
+WHERE E.DIV_CODE    = '01'
+ AND  D.DEPT_CODE  = E.DEPT_CODE
+ AND  D.LOC         = '01';
+
+2) 문제 답
+  - E.DIV_CODE='01'의 결과 : 100건,   D.LOC='01'의 결과 30건 
+    -> DEPT -> EMP 순으로 조인 을 진행 해야함 (LEADING(D) USE_NL(E) ~)
+  - DEPT에 등치 조건에 인덱스 생성 
+  - DEPT -> EMP으로 조인 순서 변경 됨 (D.DEPT_CODE = E.DEPT_CODE -> E.DEPT_CODE = D.DEPT_CODE)
+    -> E.DEPT_CODE로 EMP 인덱스 접근 필요 하므로 E.DEPT_CODE에 인덱스 적용
+  - E.DIV_CODE = '01' 등치 조건 -> DIV_CODE 인덱스 적
+
+DROP INDEX SHIN.IX_T_DEPT_LOC;
+CREATE INDEX SHIN.IX_T_DEPT_LOC ON SHIN.T_DEPT(LOC);
+
+DROP INDEX SHIN.IX_T_EMP_02;
+CREATE INDEX SHIN.IX_T_EMP_02 ON SHIN.T_EMP(DEPT_CODE, DIV_CODE);
+
+SELECT /*+ LEADING(D) USE_NL(E) INDEX(D) INDEX(E) */
+        E.EMP_NO,  E.EMP_NAME,  E.DIV_CODE,  
+        D.DEPT_CODE,  D.DEPT_NAME,  D.LOC
+FROM  T_EMP  E,  T_DEPT  D
+WHERE E.DIV_CODE    = '01'
+ AND  D.DEPT_CODE  = E.DEPT_CODE
+ AND  D.LOC         = '01';
