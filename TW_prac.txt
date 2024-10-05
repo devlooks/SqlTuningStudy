@@ -1,3 +1,128 @@
+/*문제) 아래 쿼리를 튜닝 하시오.  (인덱스 추가 및 변경 불가능)
+  인덱스 
+   T_CUS41 : PK_T_CUST41(CUST_NO)
+     CREATE INDEX YOON.IX_T_CUST41_01 ON YOON.T_CUST41(CUST_CD);
+
+   T_ORDER41 
+     PK_T_ORDER41(ORDER_SN),  YOON.IX_T_ORDER41_01(CUST_NO, ORDER_DT);
+   
+  테이블정보-> T_CUST41  :    70,000건, CUST_CD 76A00은 355건 
+            T_ORDER41 : 1,504,500건
+
+쿼리) */
+SELECT /*+ LEADING(A) USE_NL(B) NO_PUSH_PRED(A) */ 
+       A.CUST_NO, A.CNT, A.PRICE, QTY, DT
+    ,  B.CUST_NM, B.C1, B.C2
+FROM (SELECT  /*+ NO_MERGE */ 
+               CUST_NO, COUNT(*) CNT, SUM(ORDER_PRICE) PRICE
+		     , SUM(ORDER_QTY) QTY, MAX(ORDER_DT) DT
+      FROM     T_ORDER41
+      WHERE    ORDER_DT BETWEEN '20160302'   AND  '20160302'
+      GROUP BY CUST_NO
+      ) A,  T_CUST41 B
+WHERE B.CUST_NO = A.CUST_NO
+ AND  B.CUST_CD = '76A00'
+ ;
+/*
+PLAN_TABLE_OUTPUT
+----------------------------------------------------------------------
+| Id  | Operation                    | Name        | A-Rows |Buffers |
+----------------------------------------------------------------------
+|   0 | SELECT STATEMENT             |             |     38 |  26174 |
+|   1 |  NESTED LOOPS                |             |     38 |  26174 |
+|   2 |   NESTED LOOPS               |             |   8500 |  17674 |
+|   3 |    VIEW                      |             |   8500 |   9171 |
+|   4 |     HASH GROUP BY            |             |   8500 |   9171 |
+|*  5 |      TABLE ACCESS FULL       | T_ORDER41   |   8500 |   9171 |
+|*  6 |    INDEX UNIQUE SCAN         | PK_T_CUST41 |   8500 |   8503 |
+|*  7 |   TABLE ACCESS BY INDEX ROWID| T_CUST41    |     38 |   8500 |
+----------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   5 - filter("ORDER_DT"='20160302')
+   6 - access("B"."CUST_NO"="A"."CUST_NO")
+   7 - filter("B"."CUST_CD"='76A00')
+*/
+
+- 문제 답 
+     - 메인 쿼리 : /*+ LEADING(C) USE_NL(O.O41) */, 서브 쿼리 : /*+ NO_MERGE PUSH_PRED */
+          - 메인 쿼리의 조인 조건과 등치 조건을 서브쿼리로 이동 시켜 적용
+     - 메인쿼리 : /*+ NO_MERGE(O - 서브쿼리 alias) PUSH_PRED(O - 서브쿼리 alias) LEADING(C - 먼저읽는 메인 테이블) USE_NL(O.O41)*/
+SELECT --/*+ LEADING(C) USE_NL(O.O41) */                        --HINT CASE 1 
+      /*+ NO_MERGE(O) PUSH_PRED(O) LEADING(C) USE_NL(O.O41)*/   --HINT CASE 2
+       O.CUST_NO, O.CNT, O.PRICE, O.QTY, O.DT
+    ,  C.CUST_NM, C.C1, C.C2
+FROM (SELECT --/*+ NO_MERGE PUSH_PRED */  -- HINT CASE 1
+             CUST_NO, COUNT(*) CNT
+			        , SUM(ORDER_PRICE) PRICE
+					, SUM(ORDER_QTY) QTY
+					, MAX(ORDER_DT) DT
+      FROM T_ORDER41 O41
+      WHERE ORDER_DT BETWEEN '20160302'   AND  '20160302'
+      -- /*+ NO_MERGE PUSH_PRED */ 조건 으로 인해 적용되는 조건 (Optimizer)
+      -- AND  O41.CUST_CD = '76A00'
+      -- AND  O41.CUST_NO =  C.CUST_NO
+     GROUP BY CUST_NO
+      ) O, T_CUST41 C
+WHERE C.CUST_CD = '76A00' --> 1)
+ AND  O.CUST_NO = C.CUST_NO; --> 2)
+
+=========================================================================================================================
+
+
+/* 
+다음의 SQL을 같은 Data을 증복해서 읽지 않도록 개선하세요.
+필요한 인덱스는 모두 구성되었다는 가정 
+T_ORDER42의 Primary key : ORDER_NO
+*/
+
+--문제1)
+SELECT  B.ORDER_NO, B.ORDER_CD, 
+        ROUND(A.ORDER_AMT_AVG) 평균주문금액, A.ORDER_AMT_SUM 주문합계금액
+FROM  (SELECT ORDER_CD
+            , AVG(ORDER_AMT) ORDER_AMT_AVG
+            , SUM(ORDER_AMT) ORDER_AMT_SUM
+       FROM T_ORDER42
+       GROUP BY ORDER_CD
+      )A,  T_ORDER42 B
+WHERE B.ORDER_CD = A.ORDER_CD
+ORDER BY ORDER_CD, ORDER_NO
+;
+
+--문제2)
+SELECT B.ORDER_NO, B.ORDER_CD, B.ORDER_DT, B.ORDER_AMT, B.ORDER_QTY
+FROM (SELECT MAX(ORDER_NO) ORDER_NO
+      FROM T_ORDER42
+      GROUP BY ORDER_CD
+    ) A, T_ORDER42 B
+WHERE B.ORDER_NO = A.ORDER_NO
+ORDER BY ORDER_CD, ORDER_NO
+;
+
+- 공통 답 -> GROUP BY 를 WINDOW 함수로 변경 하는 방식으로 변경, 불필요한 정렬 제거
+
+1) 문제 답
+SELECT ORDER_NO, ORDER_CD
+    ,  ROUND(AVG(ORDER_AMT) OVER(PARTITION BY ORDER_CD)) 평균주문금액
+    ,  SUM(ORDER_AMT)       OVER(PARTITION BY ORDER_CD)  주문합계금액
+FROM T_ORDER42
+ORDER BY ORDER_CD, ORDER_NO
+;
+
+2) -- ORDER BY 절 생략 : 불필요한 정렬 제거
+SELECT ORDER_NO, ORDER_CD, ORDER_DT, ORDER_AMT
+FROM (
+    SELECT ORDER_NO, ORDER_CD, ORDER_DT, ORDER_AMT
+        ,  ROW_NUMBER() OVER (PARTITION BY ORDER_CD ORDER BY ORDER_NO DESC) ORDER_ROW_NO
+    FROM T_ORDER42 
+    )
+WHERE ORDER_ROW_NO = 1
+;
+
+=========================================================================================================
+
 /* 문제)  다음 조건을 보고 아래 OLTP용  SQL을 튜닝하시오.
 T_CUST54   : 총  10만건
      CUST_NO    VARCHAR2(6)   <== PK
@@ -52,8 +177,13 @@ SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'ALLSTATS LAST -ROWS')
 |*  5 |      INDEX RANGE SCAN                  | IX_T_CUST54_01   |      1 |    500 |00:00:00.01 |       8 |
 |*  6 |     INDEX RANGE SCAN                   | IX_T_ORDER54_001 |    500 |  15000 |00:00:00.01 |    1053 |
 |   7 |    TABLE ACCESS BY INDEX ROWID         | T_ORDER54        |  15000 |  15000 |00:00:00.01 |   15000 |
-|*  8동
-      GROUP BY CUST_NO
-      ) O, T_CUST41 C
-WHERE C.CUST_CD = '76A00' -> 1)
- AND  O.CUST_NO = C.CUST_NO; -> 2)
+|*  8 |   INDEX RANGE SCAN                     | IX_T_CD54        |      2 |      1 |00:00:00.01 |       4 |
+------------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   1 - filter( IS NOT NULL)
+   5 - access("C"."CUST_TYPE"='C050')
+   6 - access("O"."CUST_NO"="C"."CUST_NO")
+   8 - access("CD"=:B1 AND "CD_TYPE"='2') */
