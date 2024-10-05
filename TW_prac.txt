@@ -187,3 +187,48 @@ Predicate Information (identified by operation id):
    5 - access("C"."CUST_TYPE"='C050')
    6 - access("O"."CUST_NO"="C"."CUST_NO")
    8 - access("CD"=:B1 AND "CD_TYPE"='2') */
+
+- 문제 답
+	- 서브쿼리 : 메인쿼리 -> 1 : M 관계
+		-> PUSH_SUBQ -> 서브쿼리 조건을 메인 테이블같이 처리 -> 건수 줄임 필요 -> T_CUST54에 EXISTS 조건 적용 -> T_ORDER54 와 조인
+		-> 메인 쿼리에 서브쿼리 조건 적용시, 인덱스 필요 접근 필요 하므로  T_CUST54.CUST_DIV_CD컬럼 인덱스 추가
+			-> TIP : 좌변 = 우변 에서 좌변에 일반적으로 인덱스 적용, 우편은 그냥 단순 데이터 넣는 경우
+	- NO_UNNEST -> UNNEST로 변경시, 동등 조인으로 변경, 다량의 조인 발생 -> 유지 필요
+	
+SELECT C.CUST_NO, C.CUST_NM, C.CUST_DIV_CD, O.ORDER_NO, O.ORDER_DT
+FROM T_CUST54 C, T_ORDER54 O
+WHERE C.CUST_TYPE   = 'C050'
+  AND O.CUST_NO     = C.CUST_NO
+  AND EXISTS (SELECT /*+ NO_UNNEST PUSH_SUBQ */ 1 
+              FROM   T_CD54
+              WHERE  CD      = C.CUST_DIV_CD
+               AND   CD_TYPE = '2'
+            ) 
+           ;
+
+            
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'ALLSTATS LAST -ROWS'));
+
+/*
+-----------------------------------------------------------------------------------------------------------
+| Id  | Operation                             | Name             | Starts | A-Rows |   A-Time   | Buffers |
+-----------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                      |                  |      1 |    120 |00:00:00.01 |     146 |
+|   1 |  NESTED LOOPS                         |                  |      1 |    120 |00:00:00.01 |     146 |
+|   2 |   NESTED LOOPS                        |                  |      1 |    120 |00:00:00.01 |      26 |
+|   3 |    TABLE ACCESS BY INDEX ROWID BATCHED| T_CUST54         |      1 |      4 |00:00:00.01 |      12 |
+|*  4 |     INDEX RANGE SCAN                  | IX_T_CUST54_01   |      1 |      4 |00:00:00.01 |       8 |
+|*  5 |      INDEX RANGE SCAN                 | IX_T_CD54        |      2 |      1 |00:00:00.01 |       4 |
+|*  6 |    INDEX RANGE SCAN                   | IX_T_ORDER54_001 |      4 |    120 |00:00:00.01 |      14 |
+|   7 |   TABLE ACCESS BY INDEX ROWID         | T_ORDER54        |    120 |    120 |00:00:00.01 |     120 |
+-----------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   4 - access("C"."CUST_TYPE"='C050')
+       filter( IS NOT NULL)
+   5 - access("CD"=:B1 AND "CD_TYPE"='2')
+   6 - access("O"."CUST_NO"="C"."CUST_NO")
+  */
+
