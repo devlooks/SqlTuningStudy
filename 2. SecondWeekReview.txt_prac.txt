@@ -1,4 +1,4 @@
-/*
+2/*
 T_CUST33 테이블 구조
    CUST_NO       VARCHAR2(7),
    CUST_NM       VARCHAR2(50),
