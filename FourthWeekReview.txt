@@ -1,0 +1,519 @@
+고급 SQL 튜닝
+
+동일 테이블 다중 Outer 조인 시, 변경 방식
+	from 고객
+		,(select ~ from 월별납입방법 
+			where ~ )
+		,(select ~ from 월별납입방법
+			~ )
+			
+		1. sum (decode ( )) 사용, 단, default X => return null 
+		2. case when ~ then ~ end 단, else X => return null
+			=> return null -> null을 통해 연산을 줄인
+			
+Union All 이용 M : M 조인
+	- Full Outer Join -> Union ALl로 변경
+	
+	-- A Query
+	select to_number(null) 실적 금액 ~
+	from 계획
+	where 
+	union all
+	select to_number(null) 계획 금액
+	from ~
+	where ~
+	
+	=> select
+			부서번호, 연월
+			, nvl (max( 계획금액 ))
+			, nvl (max( 실적금액 ))
+		from (
+			**A Query**
+			)
+			group by 부서번호, 연월
+		
+
+With 구문 활용
+	ex) 
+		with t_dept as (select deptno, dname, loc, from dept)
+		select ~
+		from emp e, t_dept d
+		where ~
+		
+	- with 절 dbms 처리 방식
+		- materialize: 임시 테이블 생성
+			- with t_dept as (select /*+ materialize */ ~~)
+		- inline : 런타임시 반복 수행
+			- with t_dept as (select /*+ inline */ ~~)
+			
+소트 튜닝
+	Sort Runs : 소트량이 많을 때 Disk Temp 영역에 소트 중간 집합 저장
+	
+	- 메모리 소트 : 메모리내 완료, Internal Optimal Sort
+	- 디스크 소트 : 디스크 공간 사용, External Optimal Sort
+					, One Pass -> 디스크에 한번 쓰기
+					, Multipass -> 디스크 여러번 쓰기
+					
+	- PGA -> 프로세스 정보
+	- UGA -> 세션만의 정보 (하나에 하나)
+	
+Sort Area 생성 위치
+	- CGA
+		- DML 문장 => Excute Call 내 완료 => CGA 생성
+		- select => 마지막 보다 한단계 앞선 정렬 => Fetch Call => CGA
+	- UGA
+		- select => 마지막 단계 정렬 => call 넘어감
+		
+소트발생 시키는 오퍼레이션
+	1) Sort Aggregate -> 전체 대상 집계 수행
+	2) Sort Order by -> Order by 절 사용
+	3) Sort Group by -> 집계함수 + Group by 사용( 정렬 X, order by X)
+	4) Sort Unique 
+		-> Unnesting 서브 쿼리 -> M 인 쪽, 인덱스 X, 세미조인X
+			-> 조인시 중복 제거 -> sort unique 수행
+		-> M 집합 unnest
+			- M쪽 드라이빙 => Sort Unique
+			- 1쪽 드라이빙 => Semi Join
+	5) Sort Join
+		-> /*+ ordered use_merge(e) */
+	6) Window Sort
+		-> window Function 사용
+	=> J O G A U W
+	
+소트 튜닝
+	1. Distinct => Exist 로 변경 
+				=> 서브쿼리 filter 조건 이용
+		
+	
+	2. 불필요한 Count() 연산 제거
+		=> plsql의 존재 유무 판단시, 전체 대상 => 부분 처리로 변경
+			ex)
+				select count(*) int v_cnt
+				(
+				select 고객번호
+				from 고객
+				where col1 = 'vip'
+				and rownum <= 1)
+		
+	3. Sort Order by 대체
+		=> order by 의 컬럼 => 인덱스 추가
+		
+	4. sort Area 적게 사용
+		=> 조회시 처리 X
+			ex) select 처리 로직 
+				from 
+				where ~ 
+				=>
+				select ~ (처리 로직)
+				from (조회 쿼리)
+				
+Top-N 쿼리 사용
+	=> ROWNUM 사용, (Stopkey 작동)
+	=> 메모리 Rownum 만큼 할당
+	=> 단, Rownum을 Alias로 이용시, stopkey 미작동
+	=> Rank(), row_number() 도, Top-N 알고리즘 사용 => max() 함수 보다 부하 적음
+	
+소트영역 크기 조정
+	- work Area Size 관리
+		- sort_area_size
+		- hash_area_size
+		- bitmap_merge_area_size
+		- create_bitmap_area_size
+	- work Area size
+		- oracle 8i 이하 => DBA 의한 크기 조정
+				 9i 이상 => 자동
+				 => workarea_size_policy = auto
+				 => ~					 = manual => 수정
+		- 최대 : 2147483487
+		
+	- 대량 배치
+		alter session set workarea_size_policy = manual
+						  hash_area_size = 2.147.483.647
+						  sort_area_size = 2.147.483.647
+						  
+PGA 수동 메모리 관리 방식 변경시 주의 사항
+	- parallel Query 수행 => 병렬 슬레이브 별 sort(hash)_area_size 설정
+	- parallel degree의 2배 만큼의 슬레이브 프로세스 작동
+	- ex)
+		alter session set workarea_size_policy = manual
+						  sort_areasize = 2147483671
+		select /*+ full(a) parallel(a 8) */
+			=> 2GB * 8 * 2 => 32Gb sort area
+			
+파티션
+
+	- 파티션 단위 저장
+	- 파티션에 따라 별도의 세그먼트에 데이터 저장
+	- 파티션 인덱스 : Non-Partition Index -> partition 별 관리 힘듬, 순서 없어짐
+
+Range 파티셔닝
+	- 파키션 키 값의 범위로 반할
+	- 일반적 주로 날짜 칼럼 기준
+	- 파티션 키 칼럼은 다중 칼럼 활용가능, 주로 하나 사용
+	
+hash 파티셔닝
+	- 파티션키 => 해시 함수 적용, 반환값 파티션 매핑
+	- 데이터 고르게 분한 DBMS 관리 => 각 로우 저장 위치 예측 못함
+	- 파티션 키의 데이터 분포가 고른 칼럼이 효과적
+	- 병렬처리시 성능 향상
+	- DML 경합 분산 향상
+	- 파티션 키 칼럼 => 다중 칼럼 활용 가능 => 하나의 칼럼 지정
+	
+list 파티셔닝
+	- 불연속적 값의 목록 파티션 지정
+	- 파티션 키 칼럼 => 단일 컬럼으로만 지정
+	- 순서와 상관없이 사용자가 미리 정한 그룹핑 기준에 따라 데이터 분할 지정
+	
+Composite 파티셔닝
+	- Range, list 파티션 내 또 다른 서브 파티션(Range, hash, list) 구성
+	- Range, list 파티션 이점 + 각 서브 파티션 이점
+	
+Oracle 버전별 파티션 지원 유형
+
+	파티션 유형	단일 파티셔닝				결합 파티셔닝
+								hash	list 	range
+	range		8이상			8i이상	9i이상	11g이상
+	hash		8i이상			x		x		x
+	list		9i이상			11g		11g		11g
+	
+파티션 구성 예제
+	create table 매출( 컬럼 )
+	partition by range( 매출일자 )
+		(partition P2019_1Q value less('20190401')
+		, partition P2019_2Q value less('20190701')
+		, partition P2019_3Q value less('20191001')
+		, partition P2019_4Q value less('20200101')
+		, partition P2019_4Q value less(MAXVALUE)
+		);
+		
+파티션 Prunning
+	- 불필요한 파티션 액세스 대상 제외
+	- DML 수행, 파티션 테이블 조회, 성능 향상, 사용X 성능 급격히 떨어짐
+	ex) select ~ from ~
+		where ~ <= '20170601' -> 파티션키 상수조건 조회시
+		** 상수조건 => 상수 값으로 비교 하는 조건
+
+동적 파티션 Pruning
+	ex) select 
+		from ~
+		where con_dt <= :1 -> 바인딩 조건
+		
+	- DBMS 가 지능 적으로 수행 메커니즘
+	- 파티션 키 칼럼 => 가공 발생X
+	- 파티션 키 칼럼 가공 => 묵시적 형변환 => 파티션 Prunning 미작동
+	
+파티션 인덱스
+	Local 파티션 vs Global 파티션
+	
+	- Local 파티션 인덱스 : 테이블 파티션과 1:1 대응
+	- Global 파티션 인덱스 : 테이블 파티션과 독립적 구성
+	
+	Prefixed 파티션 인덱스
+		- 파티션키 => 선두컬럼 인덱스
+	Non-Prefixed 인덱스 
+		- 파티션키 => 선두컬럼 아닌 인덱스
+	
+	- 인덱스 종류
+		- Local Prefixed Index
+		- Non ~
+		- Global Prefixed Index
+		- Non ~
+		- 비 파티션 인덱스
+
+인덱스 파티셔닝 가이드 - 비 파티션	
+	- 파티션 키 조건 누락 X
+	- OLTP 에 사용X
+	- NL Join => 파티션키 => 넓은 범위 검색 조건 Inner 액세스 => 비파티션
+	- 파티션 인덱스 => sort order by 대체 효과 X
+	- 소트 연산 => 부분 처리 => 비파티션
+	- 파티션 이동, 삭제 => unusable 로 변경
+	
+인덱스 파티셔닝 가이드 - Global Prefixed
+	- 인덱스 경합 분산
+	- Local 파티션 인덱스 비효율 => tkdyd
+	- 테이블 파티션 이동 삭제 => unusable 로 변경
+
+인덱스 파티셔닝 가이드 - Local Non Prefixed
+	- 관리적 측면에서 유용 => 파티션, 추가 , 삭제 등, 작업 빈번시 사용
+	- 이력성 데이터 주로 관리 DB환경 효과적
+	- 파티션 키 조건절 사용 유용
+	- 파티션키 => 검색 조건X => 비효율 발생
+	- 범위 조건 주로 => Local Non Prefixed 인덱스 사용
+		ex) 
+			계좌번호 = '111'
+			and 거래일자 between ~
+			=> 거래일자 + 계좌번호 (local Prefixed)
+				=> 계좌번호 + 거래일자 (local Non-Prefixed)
+				
+배치 프로그램	
+	- 정기 배치 : 정해진 시점
+	- 이벤트성 배치 : 사전 정의 조건 충족
+	- On-Demand : 명시적 요구
+	
+	성능 개선 목표 설정
+		- 온라인 => 응답 속도
+		- 배치 => 전체 처리 속도
+	배치 프로그램 구현 패턴 튜닝 방안
+		- 절차형 프로그램 : 커서 => 루프 => SQL 반복처리
+		- 반복 DBMS Call
+		- Random Access 위주
+		- 중복 액세스 (동일 데이터)
+		
+		=> One sql 위주 구현
+			=> 집합적 SQL 
+				=> ctas, Intas 사용시, Loop 사용하지 않는것
+				create table ~ as
+				insert table ~ as
+				
+		
+배치 프로그램 구현 패턴, 튜닝 방안
+	절차형
+		- 병목 + 개별 SQL => 인덱스 재구성
+		- 프로그램 Parallel 사용
+		- Array Proccessing
+		- One SQL 방식 구현
+			-> One SQL : 병목 제거 	=> Index Scan => Full Table Scan
+									=> NL => Hash Join
+					   :임시 테이블, 파티션 , 병렬처리 사용
+
+병렬 처리 활용가능
+대분류			중분류								pq_distribute
+단일 테이블		일반 병렬								없음
+				Sort, Group by 병렬					Range / hash
+
+병렬 조인 		partitioned Table
+					- Full Partition Wise Join 		없음
+					- Partial Partition Wise Join	KEY
+					
+				Non Partitioned Table
+					- Dynamic Partition Wise Join	Hash / BroadCast
+				
+				Parallel - Non Paralle 조인 			Hash / BroadCast
+					
+Granule
+	- 병렬 작업자가 처리할 데이터의 최소 단위
+		- 블록 기반
+			- 파티션 여부 상관X 병렬도 지정 가능
+			- Granule 할당 => QC 처리	
+			- 실행계획 PX Block Iterator 표기
+		- 파티션 기반
+			- 파티션 => 병렬 프로세스 처리
+			- 병렬도는 전체 파티션 개수 이하 설정 가능
+			- Px partition Range All, Px partition range Iterator로 표시
+			
+		Partitioned Table => Table Full Scan, Index Fast Full Scan => 블록 기반 Granule
+		
+병렬 조인
+	- Full Partition Wise Join 
+		-> 두 테이블 모두 Join 칼럼 기준 => Partitioning
+	- Partial Partition Wise Join
+		-> 하나의 테이블만, Join 칼럼 기준 => Partitioning
+	- Dynamic Partition Wise Join
+		-> 두 테이블 모두 Join 칼럼 기준 Partitioning 되어있지 X
+			-> 동적 파티셔닝
+			-> Broadcasting 방식
+		*PQ_DISTRIBUTE
+			: Range, hash, key Broadcasting, Round-Robin
+			
+	ex)
+		FULL PARTITION WISE Join
+		SELECT /*+ leading(D) full(E) full(D)
+				   USE_HASH(E)
+				   RARALLEL(E 2) PARALLEL(D 2) */ -> 둘다 partition으로 나눠져있음
+		FROM ~
+		WHERE ~
+		AND 	E.IN_DT = D.IN_DT -> 파티션 키
+		
+		PARTIAL PARTITION WISE Join
+		SELECT /*+ LEADING(D) FULL(E) FULL(D)
+					USE_HASH(E)
+					PARALLEL(E 2) PARALLEL(D 2)
+					PQ_DISTRIBUTE (E PARTITION NONE) */ -> E는 파티셔닝 안됨
+		FROM ~
+		WHERE ~
+		AND E.IN_DT = D.IN_DT
+
+	구분	
+	FULL PARTITION WISE -> 두 테이블 모두 조인 컬럼 기준 파티셔닝
+						-> 데이터 재분배 불필요
+	PARTIAL Partition Wise Join	-> 둘 중 하나만 조인 컬럼 기준 파티셔닝
+								   비 파티션 테이블을 파티션 테이블 기준 데이터 재분배
+						   
+	동적 파티셔닝			- 양쪽 모두 비 파티션		- NL, 소트머지, Hash 모두 가능, 주로 Hash
+						- 주로 둘다 대용량			
+						- 임시 테이블 많이 이용
+						- 두 테이블 전체 범위
+						- 데이터 분포 균일
+	BroadCast			- 양쪽 비파티션			- 큰 테이블 부분 범위
+						- 한쪽 데이터량이 매우 적은 경우 
+						- BroadCast -> NL, 소트머지
+						
+병렬처리 활용
+	- SQL 수행 작업 범위 -> 여러개 작은 단위 -> 여러 프로세스 동시처리 -> 대용량 데이터 속도 향상
+		ex)
+			select /*+ full(o) parallel(o 4) */ => parallel 힌트 => full 과 함께 사용
+	- parallel_index 힌트 사용 -> index_ffs 힌트 함께 사용
+		(Full Table Scan 사용시, Parallel 옵티마이저가 힌트 무시)
+		select /*+ index_ffs(o 주문_idx) parallel_index(o 주문_idx, 4) */
+		
+	- 병렬 DML 수행시
+	- Alter session enable parallel dml 사용
+	
+QC (Query Coordinator와 병렬 서버 프로세스)
+	- QC : 병렬 SQL문을 발행한 세션
+	- 서버 프로세스 : 실제 작업을 수행 세션
+
+QC의 역할
+	- 병렬도 (degree of parallelism) 와 오퍼레이션 종류에 따라 하나 또는 2개의 병렬 서버 집합 (Server Set) 할당
+	- 필요한 만큼 서버 프로세스를 확보 및 부족분 신규 생성
+	- 병렬서버 작업 할당
+	- 병렬처리 하도록 지시 X, 테이블 QC 직접 처리
+	- 병렬 서버로 부터 산출물 통합
+	- 집합 사용자에게 전송, DML -> 집계, 갱신 건수 전송
+	- Query 결과 전송 단계 => Scalar Sub Query도 QC 수행
+	
+데이터 재분배
+	- 병렬 프로세스 간 데이터 재분배
+		- Range
+			: order by, sort group by 병렬 처리시 사용X
+			: 정렬 작업 맡은 두번쨰 서버집합, ㅍ로세스별 처리 범위 지정
+			: 데이터 스캔 서버 집합 => 정렬 맡은 두번쨰 서버집합 => 정렬키 값 분배
+			: QC는 각 프로세스 작업 범위 할당, 작업참여X
+			: 정렬 완료 => 사용자에게 전송
+		- hash
+			: 조인 hash group by 병렬처리시 사용
+			: 조인키, group by 키 해시함수 적용, 리턴 값에 따른 데이터 분배
+			: P -> P, S -> P 방식
+		- BroadCast : 동적 파티셔닝 Join, Partial Partition Wise 조인 시 사용
+			: 병렬 조인 크기가 매우 작은 테이블 존재시 사용
+			: QC 또는 첫번쨰 서버 집합(Data Scan)
+				-> 읽은 데이터 -> 두번째 서버집합 (Sorting) -> 전송
+			: P -> P, S -> P 방식
+		- Key		: Partition Wise Join
+			: 특정 칼럼 기준, 테이블 또는 인덱스를 파티셔닝 할떄 분배 방식
+			: Partial Partition-Wise 조인
+			: CTAS 문장, 파티션 테이블 만들때 (9i)
+			: 병렬로 글로벌 파티션 인덱스 만들때 
+			* 비 파티션 인덱스를 만들때 Range 방식 활용가능
+			
+		- Round-Robin : Insert select 시 사용
+			: 파티션 키, 정렬 키, 해시함수 등.. 의존X
+				-> 병렬 프로세스, 무작위 데이터 분배
+			: INSERT SELECT시 활용
+		
+	* Intra-Operation Parallelism => 각 프로세스간 독립적 작업
+	* Inter-Operation Parallelism => 각 프로세스간 통신 방법 (P->P, S->P, P->S)
+	
+PQ_DISTRIBUTE
+	- 조인되는 양쪽 테이블의 파티션 구성
+		-> 데이터 크기 등에 따라 병렬 조인 수행, 옵션 다르게
+	- PQ_DISTRIBUTE => 사용자 직접 조인 => 분배 방식 결정
+	- 옵티마이저 선택이 별로 일떄
+	
+	PQ_DISTRIBUTE 힌트 
+		- 옵티마이저 파티션 테이블 활용 X -> 재분할
+		- 기존 파티션 키 무시 -> 다른 키로 동적 재분할
+		- 통계 정보 부정확, 제공 어려울때 -> 실행 계획 고정
+		- 데이터 분배 방식 변경
+		- 병렬 방식 -> 조인 수행 -> 프로세스 서로 독립적 작업 -> 사전 준비
+		- 데이터 적절히 배분 작업 선행
+		- 병렬 쿼리 -> 분할 정복 원리 기초
+		- 병렬 조인 -> 분배, 조인 원리 작동
+		- pq_distribute -> 데이터 분배 과정, 관여, 조인은 결정X
+		
+		ex)
+			/*+ pq_distribute(table, outer_distribution, inner_distribution) */
+			outer_distribution -> outer 테이블 분배
+			inner_distribution -> inner 테이블 분배
+			
+			=> 조인 순서 고정 -> ordered, leading  필수 사용
+			
+			/*+ ordered 						-> 나열된 순서 대로 조인
+				use_hash(b)						-> b와 조인시 hash
+				use_nl(c)						-> c와 조인시 nl
+				use_merge(d)					-> d와 조인시 merge
+				full(a)							-> 각각 full Scan
+				full(b)
+				full(c)
+				full(d)
+				parallel(a, 16)					-> 병렬 처리
+				parallel(b, 16)
+				parallel(c, 16)
+				parallel(d, 16)
+				pq_distribute(b, none, partition) -> b와 조인시 inner 테이블 파티셔닝(outer 테이블에 맞춰)
+				pq_distribute(c, none, broadcast) -> c와 조인시 inner broadcast
+				pq_distribute(d, hash, hash) */	  -> d와 조인 양쪽 hash 방식으로 동적 파티셔닝
+				
+				
+		pq_distribute(inner, none, none)
+			=> Full-Partition Wise 조인 유도시 사용
+			=> 양쪽 조인 컬럼 같은 기준, 파티셔닝시, 작동
+			
+Partition Wise Join
+	-> 양쪽 동일 컬럼 파티셔닝
+	-> 각 파티션 끼리 독립적 조인 -> 서로 통신X -> 성능 향상
+	
+	- Full Partition Wise Join 
+		: 사전 양쪽 모두 파티셔닝, Partition Wise Join
+	- Partial Partition Wise Join
+		: 한쪽만 파티셔닝, 나머지 한쪽 동적 파티셔닝 -> Partition Wise Join
+		
+PQ_DISTRIBUTE(inner, partition, none)
+	- Partial-Partition Wise Join 유도
+	- Outer 테이블 inner 테이블 파티션 기준 파티셔닝
+	- inner 테이블 칼럼 기준, 파티셔닝 일 경우
+	
+PQ_DISTRIBUTE(inner, none, partition)
+	- Partial-Partition Wise Join 유도
+	- Inner를 Outer 테이블 기준 파티셔닝
+	- Outer 테이블이 조인키 컬럼 파티셔닝 되어있을 떄
+	
+PQ_DISTRIBUTE(inner, hash, hash)
+	- 조인키 -> 해시 함수 적용 -> 반환값 기준 -> 양쪽 동적 파티션
+	- 조인 테이블 둘다 파티셔닝 -> 짝 구성 -> Partition Wise Join 수행
+	
+PQ_DISTRIBUTE(inner, broadcast, none)
+	- Outer 테이블 BroadCast
+
+PQ_DISTRIBUTE(inner, none, broadcast)
+	- inner 테이블 BroadCast
+	
+병렬 주의 사항
+	- 과도 사용시, 시스템 마비
+	- 기준
+		- 동시 사용자 적은 애플리케이션
+		- 야간 배치, DW, OLAP.. 직렬 처리 보다 성능 개선
+		- 작은 테이블 병렬 처리 대상 제외
+		- OLTP 시스템 환경
+		- 남발 X ex) 야간 배치, 10 -> 5분 단축시
+		- 병렬도를 높인다고 성능까지 높아지지 않음
+		- 시스템 리소스 최대한 사용 필요 시점
+		- 병렬 DML -> Exclusive Mode Table Lock -> 주간 사용X
+		
+병렬 튜닝 핵심
+	- 프로세스간 통신 최소화
+	- 병목 구간 해소
+	- 최소한의 병렬 프로세스 할당
+	
+	* Oracle 튜닝
+		- Application Cursor Caching
+		- Bind 변수
+	DBMS Call 최소화(Parse, Excute, Fetch)
+		- Application Cursor Caching
+		- Array Proccessing
+		
+I/O 성능 효율화
+	- 온라인
+		- 수직 탐색 효율화
+		- 수평적 스캔 선택도 향상
+		- Table Random Access 줄임
+		
+	- 배치 
+		- Direct Path I/O -> PPT DDL
+			-> Parallel Read -> select /*+ Parallel ~
+			-> Parallel Write -> update /*+ Parallel ~
+			-> Temp Tablespace Read/Write 
+			
+			Direct Path Read, Write
+			Lob Type Read no Cache 옵션 사용
+				
