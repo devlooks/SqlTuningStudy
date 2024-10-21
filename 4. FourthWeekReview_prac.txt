@@ -1,1 +1,250 @@
-test
+1. 문제
+
+/* 아래 SQL은 OLTP 에서 자주 사용되는구문이다. trace를 보고 튜닝을 하시오. (인덱스 변경 가능)
+테이블 정보
+ - T_ORDER53   : 0.1 억 건 (20090101 이후 200,000건)
+ - T_PRODUCT53 : 10,000건
+ - T_MANUF53   : 50건
+인덱스 
+  PRODUCT53 : PK_T_PRODUCT53(PROD_ID);
+  T_MANUF53 : PK_T_MANUF53(M_CODE);  
+*/
+SELECT /*+ ORDERED USE_NL(B C) */
+       DISTINCT B.M_CODE, C.M_NM
+FROM T_ORDER53 A, 
+     T_PRODUCT53 B, 
+     T_MANUF53 C
+WHERE A.ORDER_DT >= '20090101'
+AND A.PROD_ID    = B.PROD_ID
+AND B.M_CODE     = C.M_CODE;
+/*
+------------------------------------------------------------------------------
+| Id  | Operation                       | Name            | A-Rows | Buffers |
+------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                |                 |     50 |   40579 |
+|   1 |  HASH UNIQUE                    |                 |     50 |   40579 |
+|   2 |   NESTED LOOPS                  |                 |    200 |   40579 |
+|   3 |    NESTED LOOPS                 |                 |    200 |   40379 |
+|   4 |     NESTED LOOPS                |                 |    200 |   40375 |
+|   5 |      VIEW                       | VW_DTP_377C5901 |    200 |   40166 |
+|   6 |       HASH UNIQUE               |                 |    200 |   40166 |
+|*  7 |        TABLE ACCESS FULL        | T_ORDER53       |    200K|   40166 |
+|   8 |      TABLE ACCESS BY INDEX ROWID| T_PRODUCT53     |    200 |     209 |
+|*  9 |       INDEX UNIQUE SCAN         | PK_T_PRODUCT53  |    200 |       9 |
+|* 10 |     INDEX UNIQUE SCAN           | PK_T_MANUF53    |    200 |       4 |
+|  11 |    TABLE ACCESS BY INDEX ROWID  | T_MANUF53       |    200 |     200 |
+------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   7 - filter("A"."ORDER_DT">='20090101')
+   9 - access("ITEM_1"="B"."PROD_ID")
+  10 - access("B"."M_CODE"="C"."M_CODE")
+*/
+
+- 답안
+
+- UNIQUE 연산 다량 발생 UNIQUE 연산 제거
+  - UNIQUE 연산 -> Exist 조건(Filter 조건) 으로 변경 캐싱됨으로 성능 향상
+  - Exist 조건에 /*+ UNNEST */ 사용, 대량 데이터 테이블과의 조인 불가토록 제어
+- 조인 연산 제어 
+  - , Random Access -> Sequential Access 로 변경 
+  - T_ORDER53 테이블이 대량 데이터 이므로 힌트 /*+ ORDERED USE_NL(B C) */ -> /*+ FULL(A) LEADING(A) */ 로 변경 
+
+SELECT /*+ FULL(A) LEADING(A) */ M_CODE,   M_NM
+FROM T_MANUF53 A
+WHERE EXISTS (SELECT /*+ UNNEST  */ 1
+              FROM T_PRODUCT53 P
+              WHERE P.M_CODE  = A.M_CODE
+               AND EXISTS (SELECT /*+ UNNEST */ 1 
+                        FROM T_ORDER53 O
+                        WHERE O.PROD_ID = P.PROD_ID
+                        AND  O.ORDER_DT >= '20090101'
+                       )
+              );
+/*------------------------------------------------------------------------------------------
+| Id  | Operation               | Name            | Starts | A-Rows |   A-Time   | Buffers |
+--------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT        |                 |      1 |     50 |00:00:00.01 |     158 |
+|   1 |  NESTED LOOPS SEMI      |                 |      1 |     50 |00:00:00.01 |     158 |
+|   2 |   TABLE ACCESS FULL     | T_MANUF53       |      1 |     50 |00:00:00.01 |       4 |
+|   3 |   VIEW PUSHED PREDICATE | VW_SQ_1         |     50 |     50 |00:00:00.01 |     154 |
+|   4 |    NESTED LOOPS SEMI    |                 |     50 |     50 |00:00:00.01 |     154 |
+|*  5 |     INDEX RANGE SCAN    | IX_PRODUCT53_01 |     50 |     50 |00:00:00.01 |      52 |
+|*  6 |     INDEX RANGE SCAN    | IX_ORDER53_01   |     50 |     50 |00:00:00.01 |     102 |
+--------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   5 - access("P"."M_CODE"="A"."M_CODE")
+   6 - access("O"."PROD_ID"="P"."PROD_ID" AND "O"."ORDER_DT">='20090101' AND 
+              "O"."ORDER_DT" IS NOT NULL)
+*/
+ALTER SESSION SET STATISTICS_LEVEL = ALL;
+select * from table(dbms_xplan.display_cursor(null, null, 'iostats last'));
+
+=====================================================================================================================================
+
+2. 문제
+
+/*  
+
+테이블
+   CONSULT_NO       NUMBER       -- 상담번호
+   CONSULTANT_ID   VARCHAR2(4)    -- 상담자 아이디
+   con_dt            VARCHAR2(8) -- 상담일자
+   CON_TM           VARCHAR2(4) -- 상담시간
+   RSLT_CD          VARCHAR2(4)  -- 상담처리 결과 0800(진행),  0900(완료)
+   AFTRSLT          VARCHAR2(2)  -- 사후처리 결과 11(보류), 21(부서이관)
+   CUST_ID                       -- 고객ID
+   
+1) 아래 요건에 맞는 쿼리를 작성하세요.
+   - 조건 : 상담자 아이디가 바인드변수로 제공
+   - 상담자가 당월 1일 00시부터 현재일자 12시까지 상담한 정보를 조회하고자 한다.
+     예) 오늘이 9월22일 일경우 => 2014.09.01 00:00 ~ 2014.09.22  12:00 
+   - 조회 정보
+          - 해당 상담자가 상담한 건수, 
+          - 상담처리 결과가 완료된 건수, 
+          - 사후처리가 부서이관된 건수(상담처리 결과는 완료된 건)
+          - Unique한 상담 고객 수
+
+2) 인덱스를 구성하세요.
+  상담 테이블에서 상담일자로 월별 파티션이 되어 있다.  위 쿼리를 기준으로 가장 
+  최적화된 인덱스를 구성하세요.  
+  단,  테이블은 60개월분만 유지한다.  즉, 매달 1일 60개월 이전 데이터는 빠르게
+  삭제 되어야 한다.
+  
+  - 인덱스 구성 칼럼?
+  - 파티션 KEY 칼럼?
+  - LOCAL / GLOBAL 인덱스 선택
+  - GLOBAL 인데스 일 경우 파티션 키 기준 (년, 월, 일 기타 등등)
+ */
+
+- 답안
+
+  - 상담자 아이디가 바인드 변수로 제공 -> 선두 컬럼 -> INDEX 구성 컬럼  
+  - 상담자가 당월 1일 00시부터 현재일자 12시까지 상담한 정보를 조회 
+    -> CON_DT -> 다음 인덱스 생성 
+    -> CON_TM -> 다음 인덱스 생성
+      -> CREATE INDEX YOON.IX_T_CONSULT55_01 ON YOON.T_CONSULT55(CONSULTANT_ID, CON_DT, CON_TM) LOCAL;
+  - 조건 작성
+    - 바인드 변수
+    - CON_DT
+    - CON_TM 순으로 조건 생성 
+
+1. 답안
+  SELECT /*+ INDEX (A IX_T_CONSULT55_01) */ -> 해당 인덱스 사용 유도
+       :CONSULTANT_ID CONSULTANT_ID
+    ,  COUNT(*)                                                                   상담건수    
+    ,  NVL(SUM(CASE WHEN RSLT_CD = '0900' THEN 1 END), 0)                         상담완료건수 
+    ,  NVL(SUM(CASE WHEN RSLT_CD = '0900' AND AFTRSLT_CD = '21' THEN 1 END), 0)   부서이관건수
+    ,  COUNT(DISTINCT CUST_ID)                                                   상담고객수
+FROM T_CONSULT55 A
+WHERE CONSULTANT_ID = :CONSULTANT_ID -> 선두 컬럼
+ AND  CON_DT BETWEEN TO_CHAR(SYSDATE, 'YYYYMM') || '01' AND TO_CHAR(SYSDATE, 'YYYYMMDD') -> PARTITIONED INDEX
+ AND  CON_DT || CON_TM <= TO_CHAR(SYSDATE, 'YYYYMMDD') || '1200' -> FILTER 조건 
+
+2. 답안
+- 인덱스 : CONSULTANT_ID, CON_DT, CON_TM
+  -> 상담사별 조회 이므로 CONSULTANT_ID를 선두 컬럼 
+    -> 파티션 조건(CON_DT), 
+    -> 시간 조건(CON_TM) Filtering (중복 데이터 존재 하므로)
+- 파티션 : CON_DT
+  -> 기간별 데이터 이므로, 기간별로 파티션을 나눈다
+- 인덱스(LOCAL? GLOBAL?)   LOCAL 인덱스 
+  -> 파티션 프루닝 유도를 위한 LOCAL 인덱스
+
+==========================================================================================================================
+
+3. 문제제
+
+/*
+페이징 처리 SQL을 튜닝하시오. (인덱스 생성 가능/불필요한 인덱스는 감점요소임)
+ 1) T_USR60 (사용자)
+    - 10만건
+ 2) T_BBM60 (게시판)
+    - 1,000만건
+    - BBM_TYPE = 'KOR' AND REG_DTM BETWEEN ~~~ 결과 600건
+    - 동일 사용자가 게시한 글이 거의 없다는 전제
+*/
+SELECT BBM_NO, BBM_TITL, BBM_CONT, REG_NM, PYMT_YN, REG_DTM
+FROM  (SELECT BBM_NO, BBM_TITL, BBM_CONT, REG_NM, PYMT_YN, REG_DTM, ROWNUM RNUM
+       FROM (SELECT BBM_NO, BBM_TITL, BBM_CONT, FN_GETREGNM(REG_NO) REG_NM, REG_DTM, PYMT_YN
+             FROM T_BBM60
+             WHERE BBM_TYP = 'KOR'
+              AND  REG_DTM BETWEEN TO_DATE('20200101', 'YYYYMMDD')
+              AND                  TO_DATE('20200131 235959', 'YYYYMMDD HH24MISS')
+              ORDER BY PYMT_YN, REG_DTM
+            )
+	   )	  
+WHERE RNUM BETWEEN 11 AND 20
+ORDER BY RNUM;
+
+-- 테이블 구성
+CREATE TABLE T_BBM60
+ (
+    BBM_NO       NUMBER                         NOT NULL,
+    HI_BBM_NO    NUMBER         DEFAULT 0       NOT NULL,
+    BBM_TYP      VARCHAR2(3)                            ,
+    BBM_TITL     VARCHAR2(200)                  NOT NULL,
+    BBM_CONT     VARCHAR2(4000)                 NOT NULL,
+    BBM_HIT      NUMBER         DEFAULT 0       NOT NULL,
+    PYMT_YN      VARCHAR2(1)    DEFAULT 'N'     NOT NULL,
+    REG_NO       VARCHAR2(7)                    NOT NULL,
+    REG_DTM      DATE           DEFAULT SYSDATE NOT NULL,
+    MDF_NO       VARCHAR2(7)                            ,
+    MDF_DTM      DATE                                   ,
+    CONSTRAINT PK_T_BBM60 PRIMARY KEY (BBM_NO)
+ );
+
+CREATE TABLE T_USR60
+ (
+    USRNO VARCHAR2(10),
+    USRNM VARCHAR2(20),
+    CONSTRAINT PK_T_USR60 PRIMARY KEY(USRNO)
+ );
+
+CREATE OR REPLACE FUNCTION YOON.FN_GETREGNM ( V_ID IN T_USR60.USRNO%TYPE) 
+RETURN T_USR60.USRNM%TYPE IS RESULT T_USR60.USRNM%TYPE;
+BEGIN
+    SELECT A.USRNM  INTO RESULT
+    FROM T_USR60 A
+    WHERE A.USRNO = V_ID;
+    
+    RETURN(RESULT);
+    
+    EXCEPTION
+    WHEN NO_DATA_FOUND THEN RESULT := '';
+    RETURN(RESULT);
+    
+    WHEN OTHERS THEN RETURN(NULL);
+END FN_GETREGNM;
+
+
+---------------------------------------------------------------------------------------------
+| Id  | Operation                                | Name          | Starts | A-Rows |Buffers |
+---------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                         |               |      1 |     10 |   2445 |
+|   1 |  SORT ORDER BY                           |               |      1 |     10 |   2445 |
+|*  2 |   VIEW                                   |               |      1 |     10 |   2445 |
+|   3 |    COUNT                                 |               |      1 |    610 |   2445 |
+|   4 |     VIEW                                 |               |      1 |    610 |   2445 |
+|   5 |      SORT ORDER BY                       |               |      1 |    610 |   2445 |
+|   6 |       TABLE ACCESS BY INDEX ROWID BATCHED| T_BBM60       |      1 |    610 |    615 |
+|*  7 |        INDEX RANGE SCAN                  | IX_T_BBM60_02 |      1 |    610 |      5 |
+---------------------------------------------------------------------------------------------
+
+- 답안
+  1. 인덱스 설저 
+    - 가장 내부 인라인뷰 Sort 연산 제거, 인라인뷰 인덱스 설정
+    - 인덱스 설정 순서 -> 등치 조건 + Order by + Where 기타 연산자 순으로 인덱스 구성
+
+  2. STOPKEY 발생 (Full Scan 방지)
+    - rownum 컬럼 사용 (alias로 사용 X)
+
+  3. PL/SQL 조인으로 변경(
+    - PL/SQL과, SQL은 실행 엔진이 다름 -> CONTEXT SWITCH 수행 제거(사용자 정의 함수 사용시 발생)
+    - 스칼라 서브쿼리 -> 최종 출력 영역으로 변경 
+      -> 인라인 뷰는 캐싱을 하나, 동일 데이터가 거의 없거나,
+        테이블 건수가 약 6만건 넘을 경우 JOIN 처리 유리 (OUTER JOIN 필수)
+
