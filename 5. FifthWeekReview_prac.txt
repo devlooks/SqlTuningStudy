@@ -1,1 +1,160 @@
+CREATE TABLE SHIN.T_ORDER61
+   (CUST_NO     VARCHAR2(6)   ,
+    ORDER_DT    VARCHAR2(8)   ,
+    ORDER_SN    NUMBER        ,
+    ORDER_AMT   NUMBER DEFAULT 0,
+    CONSTRAINT PK_T_ORDER61 PRIMARY KEY(CUST_NO, ORDER_DT, ORDER_SN)
+   );
+ CREATE TABLE SHIN.T_ORDER_PROD61
+   (CUST_NO     VARCHAR2(6)   ,
+    ORDER_DT    VARCHAR2(8)   ,
+    ORDER_SN    NUMBER        ,
+    PROD_NO     VARCHAR2(5)   ,
+    AMT         NUMBER DEFAULT 0  ,
+    CNT         NUMBER ,
+    CONSTRAINT PK_T_ORDER_PROD61 PRIMARY KEY(CUST_NO, ORDER_DT, ORDER_SN, PROD_NO)
+   );   /*
+T_ORDER61,  T_ORDER_PROD61은 ORDER_DT로 월별 파티션되어 있음.    파티션명칭 : PTYYYYMM
+아래 SQL을 보고 튜닝하세요.
+※ 실제 오라클에 환경 구성을 하고 아래의 SQL을 수행해도 아래와 같은 실행계획은 나오지 않습니다.
+   아래와 같이 실행계획이 나왔다고 가정하고 최적의 튜닝을 수행해 보세요.  */
+INSERT INTO T_AGGRE61
+SELECT /*+ NO_QUERY_TRANSFORMATION LEADING(C A B) USE_NL(A)  USE_NL(B) 
+           INDEX(A PK_T_ORDER61) INDEX(B PK_T_ORDER_PROD61) */ 
+       A.CUST_NO, A.ORDER_DT, A.ORDER_SN, A.ORDER_AMT, 
+       B.PROD_NO, B.PRICE, 
+       C.ORDER_CNT, C.ORDER_PROD_CNT
+FROM T_ORDER61 A,  T_ORDER_PROD61 B,
+     (SELECT /*+ INDEX(X IX_T_ORDER_PROD61) */
+             CUST_NO, ORDER_DT, COUNT(*) ORDER_CNT
+		   , COUNT(DISTINCT PROD_NO) ORDER_PROD_CNT
+      FROM  T_ORDER_PROD61 X
+      WHERE ORDER_DT LIKE '201605%'
+      GROUP BY CUST_NO, ORDER_DT
+      ) C
+WHERE B.ORDER_DT  LIKE '201605%'
+ AND  A.CUST_NO  = C.CUST_NO
+ AND  A.ORDER_DT = C.ORDER_DT
+ AND  B.CUST_NO  = A.CUST_NO
+ AND  B.ORDER_DT = A.ORDER_DT
+ AND  B.ORDER_SN = A.ORDER_SN 
+;
+COMMIT;
+
+
+/*PLAN_TABLE_OUTPUT
+----------------------------------------------------------------------------------
+| Id  | Operation                         | Name              | A-Rows | Buffers |
+----------------------------------------------------------------------------------
+|   0 | INSERT STATEMENT                  |                   |      0 |    1567K|
+|   1 |  LOAD TABLE CONVENTIONAL          |                   |      0 |    1567K|
+|   2 |   NESTED LOOPS                    |                   |    930K|    1499K|
+|   3 |    NESTED LOOPS                   |                   |    930K|     569K|
+|   4 |     NESTED LOOPS                  |                   |    310K|     196K|
+|   5 |      VIEW                         |                   |  31000 |     101K|
+|   6 |       SORT GROUP BY               |                   |  31000 |     101K|
+|   7 |        TABLE ACCESS BY INDEX ROWID| T_ORDER_PROD61    |    930K|     101K|
+|*  8 |         INDEX RANGE SCAN          | IX_T_ORDER_PROD61 |    930K|    2594 |
+|   9 |      TABLE ACCESS BY INDEX ROWID  | T_ORDER61         |    310K|   95306 |
+|* 10 |       INDEX RANGE SCAN            | PK_T_ORDER61      |    310K|   63175 |
+|* 11 |     INDEX RANGE SCAN              | PK_T_ORDER_PROD61 |    930K|     372K|
+|  12 |    TABLE ACCESS BY INDEX ROWID    | T_ORDER_PROD61    |    930K|     930K|
+----------------------------------------------------------------------------------
+ */
+
+답안
+
+문제
+/*T_ORDER61,  T_ORDER_PROD61은 ORDER_DT로 월별 파티션되어 있음.    파티션명칭 : PTYYYYMM
+아래 SQL을 보고 튜닝하세요.
+※ 실제 오라클에 환경 구성을 하고 아래의 SQL을 수행해도 아래와 같은 실행계획은 나오지 않습니다.
+   아래와 같이 실행계획이 나왔다고 가정하고 최적의 튜닝을 수행해 보세요.  */
+
+1. 월별 파티션 되어있다. -> 파티션 사용 해야함
+2. 쿼리에 같은 범위 두테이블 -> 파티션 된 상태 -> 파티션 풀 스캔으로 변경
+  ex) T_ORDER61      PARTITION (PT201605) A -> 파티션 풀 스캔 구문
+3. LIKE 범위 -> Between 으로 변경
+4. insert 형식 -> /*+ APPEND */ 힌트 사용 병렬 insert 로 변경 -> LOGGING 모드 안하도록 변경
+5. 쿼리 변경
+  - 테이블 중복 존재 -> 테이블 중복 접근 제거
+  - 인라인뷰 존재 및 group by 사용된 상태 -> window 함수로 변경
+6. 조인 힌트 변경 -> 등치 조건이 많으므로 -> /*+ ORDERED  USE_HASH(B) */ 사용
+
+변경된 SQL 
+
+ALTER TABLE T_AGGRE61 NOLOGGING ;
+
+INSERT /*+ APPEND */ INTO T_AGGRE61
+SELECT /*+ ORDERED  USE_HASH(B) */
+       A.CUST_NO, A.ORDER_DT, A.ORDER_SN, A.ORDER_AMT, 
+       B.PROD_NO, B.CNT, 
+       COUNT(*) OVER(PARTITION BY B.CUST_NO, B.ORDER_DT)                   ORDER_CNT, 
+       COUNT(DISTINCT B.PROD_NO) OVER (PARTITION BY B.CUST_NO, B.ORDER_DT) ORDER_PROD_CNT
+FROM  T_ORDER61      PARTITION (PT201605) A,
+      T_ORDER_PROD61 PARTITION (PT201605) B
+WHERE A.ORDER_DT BETWEEN '20160501' AND '20160531'
+ AND  B.CUST_NO   = A.CUST_NO
+ AND  B.ORDER_DT  = A.ORDER_DT
+ AND  B.ORDER_SN  = A.ORDER_SN
+;
+
+ALTER TABLE T_AGGRE61 LOGGING ;
+
+==========================================================================================================================================
+
+/*
+쿼리 튜닝
+*/
+
+-- 인덱스 : IX_ACCT_TX81_01(CUST_NO, TX_DT)
+ALTER SESSION SET STATISTICS_LEVEL = ALL;
+-- 변경 전
+SELECT  NVL(I.금액, 0) - NVL(O.금액, 0)
+FROM    (SELECT  SUM(AMT)       금액
+         FROM    T_ACCT_TX81
+         WHERE   CUST_NO = '000001'
+          AND    IN_OUT_CD = 'I'
+          AND    TX_DT     BETWEEN '20170201' AND '20170228'
+          AND    TX_CD NOT IN (1, 3, 5, 7, 9)
+         ) I, 
+        (SELECT  SUM(AMT)       금액
+         FROM    T_ACCT_TX81
+         WHERE   CUST_NO = '000001'
+          AND    IN_OUT_CD = 'O'
+          AND    TX_DT     BETWEEN '20170201' AND '20170228'
+          AND    TX_CD NOT IN (1, 3, 5, 7, 9)
+         ) O
+;
+
+/*
+1. 튜닝 요소 - INDEX 변경
+  인덱스만 변경 : CUST_NO + IN_OUT_CD + TX_DT + TX_CD
+  기존 인덱스 추가 (등치조건 CUST_NO(선두조건)
+					, IN_OUT_CD(등치)
+					, TX_DT(범위 FILTER)
+					, TX_CD(IN-LIST))
+
+2. 튜닝 요소 - SQL 만 변경
+	동일 테이블 접근 -> 1개 테이블로 줄임 -> CASE 문으로 구분
+*/
+  
+--SQL만 수정
+SELECT  NVL(입금액, 0) - NVL(출금액, 0)
+FROM    (SELECT  SUM(CASE WHEN IN_OUT_CD = 'I' THEN AMT END)       입금액
+              ,  SUM(CASE WHEN IN_OUT_CD = 'O' THEN AMT END)       출금액
+         FROM    T_ACCT_TX81
+         WHERE   CUST_NO = '000001'
+          AND    TX_DT     BETWEEN '20170201' AND '20170228'
+          AND    TX_CD NOT IN (1, 3, 5, 7, 9)
+         ) ;
+         
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'IOSTATS LAST -ROWS'));
+
+
+
+
+
+
+
+
 
