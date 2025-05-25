@@ -32,9 +32,9 @@ Nullable 컬럼이 옵션 조건일 때
 - Nullable 컬럼 기준 Union all 분기 처리
 
 Erd 
-  - O : Option  
-  - * : Not null  
-  - # : Pk
+  -   `O` : Option  
+  -   `*` : Not null  
+  -   `#` : Pk
 
 
 
