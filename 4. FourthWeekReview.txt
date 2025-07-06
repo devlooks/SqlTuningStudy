@@ -179,11 +179,11 @@ Oracle 버전별 파티션 지원 유형
 파티션 구성 예제
 	create table 매출( 컬럼 )
 	partition by range( 매출일자 )
-		(partition P2019_1Q value less('20190401')
-		, partition P2019_2Q value less('20190701')
-		, partition P2019_3Q value less('20191001')
-		, partition P2019_4Q value less('20200101')
-		, partition P2019_4Q value less(MAXVALUE)
+		(partition P2019_1Q value less than('20190401')
+		, partition P2019_2Q value less than('20190701')
+		, partition P2019_3Q value less than('20191001')
+		, partition P2019_4Q value less than('20200101')
+		, partition P2019_4Q value less than(MAXVALUE)
 		);
 		
 파티션 Prunning
