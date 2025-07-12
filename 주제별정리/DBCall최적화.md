@@ -109,7 +109,7 @@
 
 | 병합 방지 대상 |
 |----------------|
-| 사용자 함수 |
+| 사용자 함수(Deterministic X 사용자함수) |
 | ROWNUM |
 | DISTINCT |
 | CONNECT BY |
