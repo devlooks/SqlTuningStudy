@@ -1,0 +1,611 @@
+
+## DML
+- select, Insert, Update, Delete  
+
+🔵 **보완**
+| 분류 | 명령어 | 설명 |
+|------|--------|------|
+| **DML** | SELECT, INSERT, UPDATE, DELETE | 데이터 조작어 (데이터 조회 및 수정) |
+※ `DROP`, `TRUNCATE`는 DDL → **자동 COMMIT 발생**, ROLLBACK 불가  
+
+---
+
+## DDL
+- create, alter, drop, rename  
+
+🔵 **보완**
+| 분류 | 명령어 | 설명 |
+|------|--------|------|
+| **DDL** | CREATE, ALTER, DROP, RENAME | 데이터 정의어 (객체 생성 및 구조 변경) |
+
+---
+
+## DCL
+- grant, revoke  
+
+🔵 **보완**
+| 분류 | 명령어 | 설명 |
+|------|--------|------|
+| **DCL** | GRANT, REVOKE | 권한 부여 및 회수 |
+
+---
+
+## TCL
+- commit, rollback  
+
+🔵 **보완**
+| 분류 | 명령어 | 설명 |
+|------|--------|------|
+| **TCL** | COMMIT, ROLLBACK, SAVEPOINT | 트랜잭션 제어어 (일괄 처리 단위 관리) |
+
+---
+
+## 일반 집합 연산자
+- Union -> Union  
+- Intersection -> Intersect  
+- Product -> cross join  
+- Except -> Minus  
+
+🔵 **보완**
+- SQL 집합 연산자:
+  - `UNION`: 중복 제거  
+  - `UNION ALL`: 중복 허용  
+  - `INTERSECT`: 교집합  
+  - `EXCEPT` / `MINUS`: 차집합  
+- 집합 연산자는 **위 → 아래 순서로 실행**됨  
+- 결과의 컬럼명은 **첫 번째 SELECT 문 기준**  
+
+---
+
+## 정규화
+- 정합성 확보 → 불필요한 중복 줄이기  
+- 외부키 → 다른 테이블 기본키 사용관계  
+
+---
+
+## ERD
+- 엔티티, 관계, 속성  
+
+---
+
+## 합성 연산자
+- Oracle → `||`  
+- SQL Server → `+`  
+- `Concat()` 함수  
+
+🔵 **보완**
+- 문자열 함수  
+  - `SUBSTR('문자열', 8, 4)` → 8번째 문자부터 4개 추출  
+  - `TRIM(문자)` → 양쪽 문자 제거  
+  - `LTRIM` / `RTRIM` → 앞/뒤 문자 제거  
+  - SQL Server에서는 `LTRIM`, `RTRIM`이 공백만 제거 가능  
+
+---
+
+## substr('SQL Expert', 5, 3) → Exp  
+## substring('SQL Expert', 5, 3) → Exp  
+
+---
+
+## Case 문
+```sql
+SELECT ename,
+       CASE 
+         WHEN ~ THEN ~
+         ELSE ~
+       END AS ~
+FROM t;
+```
+
+---
+
+## NULL 함수
+- NVL, ISNULL(Expr1, Expr2) Expr1이 Null 일 경우 Expr2로  
+- NULLIF(Expr1, Expr2) → Expr1과 Expr2가 같으면 Null  
+- coalesce(Expr1, Expr2, Expr3) → Null이 아닌 Expr의 최초 값  
+
+🔵 **보완**
+| 함수 | 설명 |
+|------|------|
+| `NVL(A, B)` | A가 NULL이면 B 반환 |
+| `NULLIF(A, B)` | A=B일 경우 NULL 반환, 다르면 A |
+| `COALESCE(A, B, C, …)` | 처음으로 NULL이 아닌 값 반환 |
+| `ISNULL(A, B)` | SQL Server 전용: A가 NULL이면 B 반환 |
+
+---
+
+## Group by 절과 having 절 순서 변경
+- 에러 X, 동일 결과 출력  
+- where → 그룹핑 전 필터링, having → 그룹핑 후 필터링  
+
+🔵 **보완**
+- `WHERE`절에서는 집계함수 사용 불가 → `HAVING`으로 조건 처리  
+- `GROUP BY NULL` → 불가  
+- `GROUP BY ALIAS` → 별칭 사용 불가 (컬럼명만 가능)  
+- 집계함수와 WHERE 병용 불가 (`HAVING` 사용)  
+
+---
+
+## 집계 함수
+- ISNULL(SAL, 0) → 불필요한 연산 진행  
+
+🔵 **보완**
+| 함수 | 설명 |
+|------|------|
+| `SUM`, `AVG`, `MAX`, `MIN`, `COUNT` | 기본 집계함수 |
+| `COUNT(*)` | NULL 포함 전체 행 수 |
+| `COUNT(컬럼)` | NULL 제외 행 수 |
+
+---
+
+## select 문장 실행 순서
+- FROM → WHERE → GROUP BY → HAVING → SELECT → ORDER BY  
+
+---
+
+## Outer join 
+- (+) 컬럼이 기준 → 해당 컬럼 NULL 가능  
+
+🔵 **보완**
+- **조인 종류**
+  - `INNER JOIN`: 교집합 데이터  
+  - `LEFT/RIGHT OUTER JOIN`: 기준 테이블 외부 포함  
+  - `NATURAL JOIN`: 동일 컬럼명 자동 매칭  
+  - `USING`: 동일 컬럼 중 선택적으로 조인  
+
+---
+
+## Inner join 
+- 내부 조인  
+
+---
+
+## natural join 
+- 동일한 이름 갖는 모든 컬럼에 대해 Join (데이터 성격)
+```sql
+SELECT ~ FROM A NATURAL JOIN B;
+```
+
+---
+
+## Using 조건절
+- 같은 이름 컬럼 중 원하는 컬럼만 선택적 Equal Join
+```sql
+SELECT ~ FROM A JOIN B USING(deptno);
+```
+
+---
+
+## Cross Join 
+- Product 개념  
+
+🔵 **보완**
+- 집합 연산자 `PRODUCT`와 동일 의미  
+- 모든 조합 행 생성 (Cartesian Product)
+
+---
+
+## 서브쿼리
+- 비연관 → 메인 쿼리와 연관 X  
+- 연관 → 메인 쿼리와 연관 O  
+- Single Row → 항상 1건  
+- Multi Row → 여러건 (`IN`, `ALL`, `ANY`, `EXISTS`)  
+- Multi Col → 실행 결과 여러 컬럼
+  ```sql
+  SELECT ~ 
+  FROM ~ 
+  WHERE (A, B) IN (SELECT A, B FROM ~);
+  ```
+
+🔵 **보완**
+- **Inline View**:  
+  `FROM` 절 내부의 서브쿼리 → 임시 뷰처럼 활용  
+- **뷰(View)**:  
+  독립성, 편리성, 보안성 제공  
+  ```sql
+  CREATE VIEW vw_1 AS SELECT ~;
+  DROP VIEW vw_1;
+  ```
+
+## 연관 서브쿼리
+- 메인 쿼리에 존재하는 모든 행에 반복 수행  
+
+---
+
+## 스칼러 서브쿼리
+- 메인 쿼리의 결과 건수만큼 수행  
+
+---
+
+## 뷰 
+- 독립성 → 구조 변경 시 응용프로그램 영향 없음  
+- 편리성 → 복잡 질의를 단순화  
+- 보안성 → 뷰 생성 시 컬럼 선택 가능  
+
+```sql
+CREATE VIEW vw_1 AS SELECT ~;
+DROP VIEW vw_1;
+```
+
+🔵 **보완**
+- **Inline View**:  
+  `FROM` 절 내부에 SELECT 문을 작성하여 임시 테이블처럼 사용  
+- **뷰(View)**는 실제 데이터를 저장하지 않고 쿼리 정의만 저장  
+
+---
+
+## 집합 연산자의 결과 표시 HEADING 부분은 첫 번째
+- SQL문에 사용된 ALIAS 적용  
+- `INTERSECT` → `EXISTS`, `IN` 으로 대체 가능  
+
+---
+
+## 그룹함수
+- `ROLLUP` 함수  
+- Grouping column → N → N + 1 (subTotal)  
+- 순서 바뀌면 결과 변경, 인수 주의  
+
+🔵 **보완**
+| 유형 | 설명 |
+|------|------|
+| `ROLLUP(A, B)` | A → B 순으로 단계적 그룹화 |
+| `CUBE(A, B)` | A, B의 모든 조합 집계 |
+| `GROUPING SETS((A), (B))` | 선택적 그룹 집계 |
+| `GROUPING(컬럼)` | 소계행은 1, 일반행은 0 반환 |
+
+---
+
+## Grouping 함수
+- 소계가 계산된 결과 `GROUPING(Expr)` → 1로 출력, 그 외 결과 0  
+
+---
+
+## Cube 함수
+- 다차원 집계  
+- 시스템 부담 큼  
+- 컬럼 순서 상관 없음  
+- 2ⁿ승 결과  
+
+---
+
+## Grouping Sets
+- 인수별 개별 집계  
+- 순서 변경해도 결과 동일  
+
+---
+
+## 윈도우 함수 
+- `RANK()` → 동일 순위 시 다음 순위 건너뜀 (1,2,2,4...)  
+- `DENSE_RANK()` → 동일 순위 하나의 건수 (1,2,2,3,4...)  
+- `RANGE UNBOUNDED PRECEDING` → 파티션 첫 행부터 현재 행까지  
+- `ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING` → 현재 행 기준 앞뒤 1행씩  
+- `RANGE BETWEEN 50 PRECEDING AND 150 FOLLOWING` → 값 기준 범위  
+- `FIRST_VALUE()` → 파티션별 첫 번째 값  
+- `LAST_VALUE()` → 파티션별 마지막 값  
+- `LAG()` → 이전 행 참조 (예: `LAG(SAL, 2, 0)`)  
+- `LEAD()` → 이후 행 참조 (예: `LEAD(HIREDATE, 1)`)  
+
+🔵 **보완**
+| 함수 | 설명 |
+|------|------|
+| `ROW_NUMBER()` | 유일한 순위 부여 |
+| `NTILE(N)` | 전체 행을 N등분 |
+| `CUME_DIST()` | 누적 백분율 |
+| `PERCENT_RANK()` | 0~1 백분율 순위 |
+| `RATIO_TO_REPORT()` | 전체 합 대비 비율 |
+- `PARTITION BY`: 그룹핑 유사하지만 행 수 유지  
+- `ORDER BY`와 병행 가능  
+- `GROUP BY` + 윈도우 함수 동시 사용 가능  
+
+---
+
+## 그룹내 비율 함수 
+- `RATIO_TO_REPORT` → 행별 컬럼값의 백분율  
+- `PERCENT_RANK` → 0~1 사이 백분율  
+- `CUME_DIST` → 누적 백분율  
+- `NTILE` → 전체 건수를 N등분  
+
+---
+
+## Top N 쿼리
+- `ROWNUM` (Oracle)  
+- `TOP` 절 (SQL Server)
+  ```sql
+  SELECT TOP(2) ~ FROM ~;
+  ```
+- `ROWNUM`은 **슈도컬럼**으로 사용  
+
+🔵 **보완**
+- `WITH TIES`: TOP N에서 동일 순위가 있는 경우 모두 출력  
+- 산술 우선순위: `() > ** > *, / > +, -`  
+
+---
+
+## 계층형 질의 
+- `START WITH` → 전개 시작 위치  
+- `CONNECT BY` → 다음 전개 자식 데이터  
+- `PRIOR` → 연결 방향 결정  
+  - `fk = PRIOR pk` → 순방향  
+  - `pk = PRIOR fk` → 역방향  
+- `NOCYCLE` → 순환 발생 시 에러 방지  
+- `ORDER SIBLINGS BY` → 형제 노드 간 정렬  
+- `LEVEL` → 루트 1, 하위 2, 리프까지 1씩 증가  
+- `CONNECT_BY_ISLEAF` → 리프 데이터 여부 (1/0)  
+- `CONNECT_BY_ISCYCLE` → 순환 존재 여부  
+- `SYS_CONNECT_BY_PATH` → 루트부터 경로 문자열 표시  
+- `CONNECT_BY_ROOT` → 루트 데이터 표시  
+
+🔵 **보완**
+- `WHERE`는 **계층 구성 후 필터링**  
+- SQL Server에서는 **CTE + RECURSIVE**로 구현  
+  - `ANCHOR MEMBER`: 최초 집합  
+  - `RECURSIVE MEMBER`: 재귀 반복 구성  
+
+---
+
+## pivot 절
+```sql
+SELECT *
+FROM (SELECT JOB, DEPTNO, SAL FROM emp)
+PIVOT (SUM(SAL) FOR deptno IN (10,20,30))
+ORDER BY 1;
+```
+
+🔵 **보완**
+- PIVOT은 행 데이터를 열로 변환  
+- UNPIVOT은 열 데이터를 행으로 변환  
+
+---
+
+## ACID
+- Atomicity 원자성: 성공 또는 전부 실패  
+- Consistency 일관성: 트랜잭션 후 데이터 불일치 금지  
+- Isolation 격리성: 동시에 실행 시 상호 간섭 없음  
+- Durability 영속성: 커밋 후 데이터는 영구 반영  
+
+🔵 **보완**
+| 항목 | 설명 |
+|------|------|
+| Atomicity | 전부 실행 or 전부 실패 |
+| Consistency | 데이터 일관성 유지 |
+| Isolation | 트랜잭션 간 간섭 차단 |
+| Durability | 영구적 반영 |
+
+---
+
+## Commit
+- **이전 상태**
+  - 변경 취소 가능 (Rollback)  
+  - SELECT로 결과 확인 가능  
+  - Lock 유지, 타 사용자 변경 불가  
+- **이후 상태**
+  - 데이터 DB에 반영  
+  - 이전 데이터 복구 불가  
+  - 모든 사용자에게 반영  
+  - Lock 해제, 행 조작 가능  
+
+🔵 **보완**
+- `SAVEPOINT`로 특정 시점까지 ROLLBACK 가능  
+- DDL(`CREATE`, `DROP`, `TRUNCATE`)은 **자동 커밋 발생**
+
+---
+
+## MSSQL → Auto Commit
+- 기본적으로 Auto Commit 모드  
+
+---
+
+## DDL
+- `CREATE`, `ALTER`, `DROP`, `RENAME`, `TRUNCATE TABLE`  
+- 자동 커밋 (Auto Commit)  
+- 중간 접속 단절 시 트랜잭션 롤백  
+
+🔵 **보완**
+| 명령어 | 설명 |
+|------|------|
+| CREATE | 객체 생성 |
+| ALTER | 구조 변경 |
+| DROP | 삭제 |
+| RENAME | 이름 변경 |
+
+---
+
+## create 문 
+```sql
+CREATE TABLE (
+  ~,
+  CONSTRAINT player_pk PRIMARY KEY(player_id),
+  CONSTRAINT player_fk FOREIGN KEY(team_id) REFERENCES team(team_id)
+);
+```
+
+🔵 **보완**
+```sql
+ALTER TABLE Tname ADD CONSTRAINT pk_name PRIMARY KEY(prod_id);
+```
+- 외래키 제약조건 설정 시 참조 무결성 확보  
+
+---
+
+## NULL
+- 아직 데이터가 없는 경우  
+
+---
+
+## Modify column
+- 컬럼에 데이터 존재 시 크기 축소 불가 (데이터 훼손 위험)  
+
+🔵 **보완**
+```sql
+ALTER TABLE 기관분류 
+  MODIFY (분류명 VARCHAR2(30) NOT NULL,
+          등록일자 DATE NOT NULL);
+```
+
+---
+
+## Rename Column
+- 컬럼 관련 제약 조건도 자동 변경  
+
+---
+
+## Drop constraint
+- `ALTER TABLE 테이블명 DROP CONSTRAINT 제약조건명`  
+
+---
+
+## Add constraint
+- `ALTER TABLE 테이블명 ADD CONSTRAINT 제약조건명 제약조건(컬럼명)`  
+
+---
+
+## Rename Table
+- `RENAME 기존테이블명 TO 새로운테이블명`  
+- SQL Server: `sp_rename '기존테이블명', '새로운테이블명'`  
+
+---
+
+## Drop Table
+- `DROP TABLE 테이블명 (CASCADE CONSTRAINT)`  
+
+---
+
+## Truncate table
+- `TRUNCATE TABLE 테이블명;`  
+
+🔵 **보완**
+| 명령어 | 유형 | ROLLBACK | 설명 |
+|--------|------|----------|------|
+| DELETE | DML | 가능 | 조건부 삭제, 트리거 작동 |
+| TRUNCATE | DDL | 불가 | 전체 삭제, 성능 우수 |
+| DROP | DDL | 불가 | 객체 자체 삭제 |
+
+---
+
+## MERGE 문
+```sql
+MERGE INTO t1 a
+USING t2 b
+ON (a.key = b.key)
+WHEN MATCHED THEN UPDATE ...
+WHEN NOT MATCHED THEN INSERT ...;
+```
+
+## 정규 표현식 (Regular Expression)
+
+| 연산자 | 영문 | 설명 |
+|--------|------|------|
+| . | dot | 모든 문자와 일치 |
+| \| | or | 대체 문자 구분 |
+| \\ | back slash | 다음 문자를 일반 문자로 취급 |
+
+```sql
+regexp_substr('aab','a.b') → aab  
+regexp_substr('abb','a.b') → abb  
+regexp_substr('acb','a.b') → acb  
+regexp_substr('adc','a.b') → null
+```
+
+| 연산자 | 영문 | 설명 |
+|--------|------|------|
+| ^ | carrot | 문자열 시작 |
+| $ | dollar | 문자열 끝 |
+| ? |  | 0 회 또는 1회 일치 |
+| * |  | 0 회 또는 그 이상 횟수 |
+| + |  | 1 회 또는 그 이상 횟수 |
+| {m} |  | m 회 일치 |
+| {m,} |  | 최소 m 회 |
+| {,m} |  | 최대 m 회 |
+| {m,n} |  | 최소 m, 최대 n 회 |
+
+```sql
+regexp_substr('ac','ab?c') → ac  
+regexp_substr('abc','ab?c') → abc  
+regexp_substr('abbc','ab?c') → null  
+regexp_substr('ac','ab*c') → ac  
+regexp_substr('abc','ab+c') → abc  
+```
+
+| 연산자 | 설명 | 동일 |
+|--------|------|------|
+| [:digit:] | 숫자 | [0-9] |
+| [:lower:] | 소문자 | [a-z] |
+| [:upper:] | 대문자 | [A-Z] |
+| [:alpha:] | 영문자 | [a-zA-Z] |
+| [:alnum:] | 영문자 + 숫자 | [0-9a-zA-Z] |
+| [:xdigit:] | 16진수 | [0-9a-fA-F] |
+
+```sql
+regexp_substr('gF1,','[[:digit:]]') → 1  
+regexp_substr('gF1,','[[:alpha:]]') → g  
+regexp_substr('gF1,','[[:upper:]]') → F  
+```
+
+| 연산자 | 설명 | 동일 |
+|--------|------|------|
+| \d | 숫자 | [[:digit:]] |
+| \D | 숫자가 아닌 문자 | [^[:digit:]] |
+| \w | 영문자 또는 숫자 | [[:alnum:]_] |
+| \W | 영문자·숫자 아닌 문자 | [^[:alnum:]_] |
+| \s | 공백 문자 | [[:space:]] |
+| \S | 공백 아닌 문자 | [^[:space:]] |
+
+```sql
+regexp_substr('(650) 555-0100','^\(\d{3}\)\s\d{3}-\d{4}$') → (650) 555-0100  
+regexp_substr('b2b','\w\d\D') → b2b  
+regexp_substr('jdoe@company.co.uk','\w+@\w+(\.\w+)+') → jdoe@company.co.uk  
+```
+
+| 연산자 | 설명 |
+|--------|------|
+| ?? | 0회 또는 1회 일치 |
+| *? | 0회 이상(비탐욕) |
+| +? | 1회 이상(비탐욕) |
+| {m}? | m 회 일치 |
+| {m,n}? | 최소 m, 최대 n 회 일치 |
+
+🔵 **보완**
+- 주요 정규 함수  
+  | 함수 | 설명 |
+  |------|------|
+  | `REGEXP_LIKE(expr, pattern)` | 패턴과 일치 하면 TRUE |
+  | `REGEXP_SUBSTR(expr, pattern)` | 일치 부분 문자열 추출 |
+  | `REGEXP_REPLACE(expr, pattern, rstr)` | 일치 부분을 rstr로 치환 |
+  | `REGEXP_INSTR(expr, pattern)` | 일치 패턴의 위치 반환 |
+  | `REGEXP_COUNT(expr, pattern)` | 패턴 출현 횟수 반환 |
+- 정규식은 패턴 매칭, 데이터 검증, 문자열 치환 등에 활용  
+- Oracle 과 SQL Server 모두 지원하나 함수 명칭은 상세 차이 존재  
+
+---
+
+## 기타 유용 SQL 요약 (보완 중심 섹션)
+
+🔵 **보완**
+- **NULL 연산 규칙**  
+  - `NULL + 숫자 = NULL`, `NULL + 문자 = NULL`  
+  - 비교 연산 불가 → `IS NULL`, `IS NOT NULL` 사용  
+  - 오라클에서는 `''` 빈 문자열도 NULL 로 간주  
+- **DATE 연산**  
+  - 날짜 + 숫자 → 일(day) 단위 계산  
+  - `1/24` = 1시간, `1/24/60` = 1분  
+  - `SYSDATE` (Oracle), `GETDATE()` (SQL Server) 함수  
+- **권한 관리**  
+  - `WITH GRANT OPTION`: 권한 재부여 가능  
+  - `REVOKE WITH GRANT OPTION`: 연쇄 회수  
+- **테이블 명명 규칙**  
+  - 의미 있는 단수형 사용, 예약어 또는 중복 피하기  
+- **WITH TIES** 옵션  
+  - TOP N 조회 시 동일 순위 행 모두 출력  
+
+---
+
+📘 **정리 요약**
+
+| 대분류 | 핵심 내용 |
+|---------|-----------|
+| SQL 기본 문법 | DML/DDL/DCL/TCL 명령 및 집합 연산자 |
+| 그룹·윈도우 함수 | ROLLUP/CUBE/GROUPING 및 RANK, LAG, LEAD |
+| 트랜잭션 관리 | ACID 원칙, COMMIT/ROLLBACK, Auto Commit |
+| 제약조건 및 DDL | CREATE, ALTER, DROP, RENAME, FOREIGN KEY |
+| 정규표현식 활용 | 패턴 매칭 및 문자열 검증, REGEXP_ 함수 |
+| 기타 | NULL/DATE 처리, 권한, 테이블 명명 규칙 |
