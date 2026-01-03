@@ -1,0 +1,84 @@
+DML 튜닝
+  - Insert 튜닝
+    - Direct Path Insert
+    - FreeList 거치지 않음 HWN 바깥영역에 바로 입력
+    - 대용량 Insert 속도 향상
+    - 테이블 Exclusive lock -> 다른 DML 수행 X
+    - insert ~ select + /*+ append */
+    - 병렬모드 Insert
+    - direct 옵션 SQL*Loader(sqlldr) 데이터 로드
+    - CTAS(create table ~ as select ) 문장 수행
+
+    - No logging 모드 Insert
+      - alter table t nologging;
+      - 작업 중 장애 발생시 복구 X
+
+  - SQL Server Insert 튜닝
+    - 최소로깅 -> minimal nologging
+
+  - Update 튜닝
+    - 대용량 데이터 -> 단순 Update 문 -> 소요시간이 늘어남
+    - 테이블 데이터 갱신 -> 분연 작업
+    - 인덱스 데이터 갱신
+    - 버퍼캐시 없이 블록 디스크에서 읽어 버퍼 캐시에 적재후 갱싱
+    - 내부적으로 Redo와 Undo 정보 생성
+    - 블록에 빈공간 X -> 새 블록 할당
+
+```
+
+update 구문
+
+create table 주문임시 as select * from 주문;
+truncate table 주문;
+
+insert into 주문(고객, 주문 ~)
+select 고객번호, 주문일시
+    , (case when ~ ) 상태코드
+from 주문_임시;
+
+alter table 주문 add constraint 주문_pk primary key(번호, 일시);
+create index 주문_idx1 on 주문(일시, 번호);
+
+
+단순 Delete 문 처리
+
+create table 주문_임시
+as select * from 주문 where 주문일시 >= to_Date('', '');
+
+alter table emp drop constraint 주문_pk;
+drop index 주문_idx1;
+
+truncate table 주문;
+
+insert into 주문
+select * from 주문_임시;
+
+alter table 주문 add constraint 주문_pk primary key(번호, 일시)
+
+create index 주문_idx1 on 주문(일시, 번호);
+```
+
+조인 포함 Update문 튜닝
+  - 중복 액세스 제외
+  - 수정가능 뷰(조인 조건에 Unique 인덱스 필요) + Update 문
+
+```
+Update 
+  (select ~
+   from t, c
+   where t.~ = c.~ -> Unique 인덱스
+   ~ 
+   )
+set 주문연락처 = 고객연락처
+    , 배송지주소 = 고객주소
+```
+
+Oracle Merge 문
+
+```
+merge into 고객 t using 고객변경분 s on (t.~ = s.~)
+when matched then update set ~
+
+merge into 고객 t using ~
+when not matched then insert ( ~ ) values ( ~ )
+```
