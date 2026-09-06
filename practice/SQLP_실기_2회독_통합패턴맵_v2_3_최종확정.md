@@ -109,7 +109,7 @@
 
 | ID | 패턴 | 중요도 | SQLP 근거 | 핵심 원리 | 대표 징후 | 진단 포인트 | 대응 | 2회독 처리 | 숙련도 |
 |---|---|---|---|---|---|---|---|---|---|
-| P01 | 컬럼 함수 가공 | S | A | `TRUNC(col)`, `TO_CHAR(col)` 등은 일반 B-tree 인덱스/프루닝 가용성을 약화할 수 있음 | FTS, FILTER | Access vs Filter Predicate | 범위식으로 재작성/FBI 검토 | 필수 | 숙달 (2026-08-31) |
+| P01 | 컬럼 함수 가공 | S | A | `TRUNC(col)`, `TO_CHAR(col)` 등은 일반 B-tree 인덱스/프루닝 가용성을 약화할 수 있음 | FTS, FILTER | Access vs Filter Predicate | 범위식으로 재작성/FBI 검토 | 필수 | 숙달 (2026-09-06) |
 | P02 | 암묵적 형변환 | S | A | 데이터 타입 불일치가 컬럼 쪽 변환으로 귀결되면 인덱스 사용성과 추정이 악화될 수 있음 | INTERNAL_FUNCTION/TO_NUMBER 등 | Predicate Information | 타입 일치 | 필수 | 숙달 (2026-08-20) |
 | P03 | 날짜 등치 → 범위 재작성 | S | A | `TRUNC(dt)=:d` 대신 `dt>=:d AND dt<:d+1` 형태로 접근범위를 열 수 있음 | RANGE SCAN 가능 | 경계값 포함성 | 반개구간 사용 | 필수 | 숙달 (2026-08-20) |
 | P04 | NVL/DECODE/CASE 조건 | A | B | 선택조건을 표현식으로 감싸면 Index/OR-expansion 가능성이 달라짐 | FILTER/FTS | 호출 유형별 선택도 | 분기/OR-expansion 검토 | 보강 | 숙달 (2026-08-18) |
@@ -157,10 +157,10 @@
 | J01 | Nested Loops | S | A | Outer에서 나온 각 행에 대해 Inner Row Source를 반복 실행. Inner 인덱스는 흔한 효율화 수단이지 절대 필수는 아님 | NESTED LOOPS | Outer A-Rows, Inner Starts, Inner 1회 비용 | LEADING/USE_NL, Access 개선 | 필수 | 숙달 (2026-08-16) |
 | J02 | Hash Join | S | A | 한 입력으로 해시 구조를 만들고 다른 입력을 probe하여 대량 등치조인 처리 | HASH JOIN | build/probe 크기, 메모리/Temp | USE_HASH, 선필터 | 필수 | 숙달 (2026-08-16) |
 | J03 | Merge Join | A | A | 조인키 순서가 필요한 두 입력을 병합. 비등치/정렬활용 상황도 고려 | MERGE JOIN | SORT JOIN 존재 여부 | USE_MERGE | 보강 | 미평가 |
-| J04 | Join Order / Driving | S | A | 앞 단계에서 얼마나 줄이는지가 후속 Starts/입력건수에 연쇄 영향 | LEADING order | 각 단계 A-Rows | LEADING/ORDERED 신중 사용 | 필수 | 숙달 (2026-09-03) — Driving 선정 + 인덱스 대상 테이블(대형측) 선택 2회 연속 정확. 오답 큐 해소 |
+| J04 | Join Order / Driving | S | A | 앞 단계에서 얼마나 줄이는지가 후속 Starts/입력건수에 연쇄 영향 | LEADING order | 각 단계 A-Rows | LEADING/ORDERED 신중 사용 | 필수 | 부분숙달 (2026-09-06, 오답일 2026-09-06) — Driving 선정은 완벽하나 조인통로 인덱스 선두 조인키 누락 재발 |
 | J05 | Hash Build/Probe 판단 | A | B | 일반적으로 작은 쪽 build가 유리하나 메모리·통계·변환에 따라 실제 역할 확인 필요 | HASH JOIN children | 입력 크기 | 조인순서/선필터 | 보강 | 미평가 |
 | J06 | Outer Join | S | A | 보존측 행을 유지하므로 필터 위치 변경 시 결과집합이 변할 수 있음 | HASH/NL OUTER | ON vs WHERE | 결과동일성 검증 | 필수 | 미평가 |
-| J07 | Semi Join | S | A | 존재만 필요하면 내부 중복을 외부 결과에 증폭시키지 않음 | HASH/NL SEMI | 일반 Join+DISTINCT와 비교 | EXISTS/IN, HASH_SJ 등 | 필수 | 숙달 (2026-09-03) — EXISTS 세미 관계 유지 성공, 비증폭 근거 서술은 누락 |
+| J07 | Semi Join | S | A | 존재만 필요하면 내부 중복을 외부 결과에 증폭시키지 않음 | HASH/NL SEMI | 일반 Join+DISTINCT와 비교 | EXISTS/IN, HASH_SJ 등 | 필수 | 숙달 (2026-09-06) — EXISTS 세미 관계 유지 및 1:N 증폭 제거 완벽 |
 | J08 | Anti Join | S | A | 부재 조건을 조인으로 처리해 반복 FILTER를 줄일 수 있음 | HASH/NL ANTI | NOT EXISTS Starts | HASH_AJ/NL_AJ 등 | 필수 | 미평가 |
 | J09 | Cartesian Join | A | B | 조인조건 누락 또는 의도적 조합으로 곱집합 발생 | MERGE JOIN CARTESIAN | 급격한 A-Rows 증가 | 조인조건 검증 | 보강 | 미평가 |
 | J10 | 1:N 증폭 | S | A | 다측과 일반 Join하면 기준 엔터티가 중복 출력될 수 있음 | Join 후 rows 급증 | 관계/PK-FK | Semi/집계/Distinct 필요성 판단 | 필수 | 숙달 (2026-09-01) |
@@ -172,7 +172,7 @@
 | ID | 패턴 | 중요도 | SQLP 근거 | 핵심 원리 | 대표 Plan/징후 | 대응 | 2회독 처리 | 숙련도 |
 |---|---|---|---|---|---|---|---|---|
 | Q01 | Correlated Subquery FILTER | S | A | 외부행마다 서브쿼리가 반복 실행되면 Starts가 커질 수 있음 | FILTER + Inner Starts | Unnest/Semi/Anti/Join 변환 검토 | 필수 | 숙달 (2026-09-03) — 스칼라 서브쿼리 8,000회 반복 구동 진단 정확 |
-| Q02 | Subquery Unnesting | S | A | 서브쿼리 QB를 조인 가능한 형태로 변환하여 Join Method 선택 폭을 넓힘. 항상 Semi Join이 되는 것은 아님 | SEMI/ANTI/일반 JOIN 등 | UNNEST/NO_UNNEST, 결과동일성 | 필수 | 부분숙달 (2026-09-03, 오답일 2026-09-03) — UNNEST 선언은 정확하나 전환 후 메인 힌트 세트 미완성 |
+| Q02 | Subquery Unnesting | S | A | 서브쿼리 QB를 조인 가능한 형태로 변환하여 Join Method 선택 폭을 넓힘. 항상 Semi Join이 되는 것은 아님 | SEMI/ANTI/일반 JOIN 등 | UNNEST/NO_UNNEST, 결과동일성 | 필수 | 숙달 (2026-09-06) — UNNEST NL_SJ 힌트 스스로 보완하여 완벽 달성 |
 | Q03 | Scalar Subquery 반복 | S | A | 외부행마다 단일값 서브쿼리가 반복되어 Starts 증가 가능 | SCALAR SUBQUERY/FILTER | Join/사전집계로 변환 | 필수 | 부분숙달 (2026-09-03, 오답일 2026-09-03) — 조인 변환 구조는 도출, 지표 2개 중 1개 소실(결과집합 왜곡) |
 | Q04 | Scalar Subquery Caching | B | C | 동일 키 반복 시 캐싱 효과가 있을 수 있어 Starts/비용을 단순 외부건수와 동일시하면 안 됨 | 실제 Starts 관찰 | 실제 Plan statistics 확인 | 개념 | 미평가 |
 | Q05 | View Merge | A | B | 뷰 경계를 제거해 조인순서·Predicate 최적화 범위를 넓힐 수 있음 | VIEW 제거 | MERGE/NO_MERGE | 보강 | 미평가 |
@@ -216,7 +216,7 @@
 
 | ID | 패턴 | 중요도 | SQLP 근거 | 핵심 원리 | 대표 Plan | 대응 | 2회독 처리 | 숙련도 |
 |---|---|---|---|---|---|---|---|---|
-| O01 | SORT ORDER BY | A | A | 정렬 입력 건수와 메모리/Temp가 비용 결정 | SORT ORDER BY | 입력 축소/인덱스 순서 활용 | 필수 | 숙달 (2026-08-31) |
+| O01 | SORT ORDER BY | A | A | 정렬 입력 건수와 메모리/Temp가 비용 결정 | SORT ORDER BY | 입력 축소/인덱스 순서 활용 | 필수 | 숙달 (2026-09-06) — INDEX_DESC 스캔 방향 일치 완벽 |
 | O02 | SORT UNIQUE | S | A | 정렬 기반 중복 제거 | SORT UNIQUE | 중복 발생 원인 제거 | 필수 | 숙달 (2026-08-19) |
 | O03 | HASH UNIQUE | S | A | 해시 기반 중복 제거 | HASH UNIQUE | Join 증폭 여부 | 필수 | 숙달 (2026-08-19) |
 | O04 | UNION vs UNION ALL | A | B | UNION은 중복제거 비용, UNION ALL은 그대로 결합 | SORT/HASH UNIQUE | 중복 제거 필요성 | 보강 | 미평가 |
