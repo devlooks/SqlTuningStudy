@@ -79,7 +79,7 @@
 
 | ID | 패턴 | 중요도 | SQLP 근거 | 핵심 원리 | 대표 Plan/징후 | Cardinality/진단 포인트 | 대응 | 2회독 처리 | 숙련도 |
 |---|---|---|---|---|---|---|---|---|---|
-| C01 | 단계별 결과 건수 계산 | S | A | 각 Row Source의 입력→필터→조인→집계 결과 흐름을 계산한다 | 모든 Plan | A-Rows 흐름, 입력/출력 건수 | SQL/Plan을 위에서 아래가 아니라 데이터 흐름 기준으로 판독 | 필수 반복 | 부분숙달 (2026-09-07, 오답일 2026-09-07) — Buffers 누적 규칙 미인지로 병목 Id 지목 실패(4문항 전부), 단계별 A-Rows 흐름 미작성 |
+| C01 | 단계별 결과 건수 계산 | S | A | 각 Row Source의 입력→필터→조인→집계 결과 흐름을 계산한다 | 모든 Plan | A-Rows 흐름, 입력/출력 건수 | SQL/Plan을 위에서 아래가 아니라 데이터 흐름 기준으로 판독 | 필수 반복 | 부분숙달 (2026-09-09) — 09-09 판독 드릴 12장에서 병목 Id 지목 11/12, Buffers 누적·리프 분해 체득. 단, 실제 문제 적용 미검증이므로 숙달 판정 보류 (첫 제출 기준 규칙) |
 | C02 | 선택도(Selectivity) | S | A | 조건이 전체 중 몇 %를 남기는지가 접근/조인 방식 선택의 핵심 | Filter/Access Predicate | 조건 후 A-Rows | 조건식·통계·인덱스 재검토 | 필수 | 숙달 (2026-08-16) |
 | C03 | NDV 기반 등치조건 추정 | A | B | 균등분포 가정 시 등치조건 선택도는 NDV와 연관 | E-Rows 괴리 | NDV, 분포 왜곡 | 통계/히스토그램 검토 | 보강 | 숙달 (2026-08-31) |
 | C04 | 범위조건 Cardinality | A | B | BETWEEN, >, < 범위는 값 분포와 경계에 따라 건수 결정 | INDEX RANGE SCAN/FTS | 범위 폭과 실제 분포 | 범위조건 재작성/통계 검토 | 보강 | 미평가 |
@@ -88,7 +88,7 @@
 | C07 | Anti Join Cardinality | S | A | NOT EXISTS는 매칭되지 않는 외부 행만 반환 | HASH/NL ANTI | 제거 비율 | Anti Join 변환 검토 | 필수 | 미평가 |
 | C08 | GROUP BY 입출력 건수 | S | A | 입력행 수와 그룹 NDV가 출력행 수를 결정 | HASH/SORT GROUP BY | 그룹키 NDV | 선집계/후집계 위치 판단 | 필수 | 미평가 |
 | C09 | DISTINCT 전후 건수 | S | A | 1:N 조인 증폭 후 DISTINCT가 중복 제거 비용을 만든다 | HASH UNIQUE/SORT UNIQUE | 증폭 건수와 최종 유일건수 | Semi Join/사전집계 등 구조 변경 | 필수 | 미평가 |
-| C10 | Top-N 결과 건수 | A | A | 전체 정렬/분석 전에 N건만 필요하면 Stopkey 가능성 | COUNT STOPKEY/SORT ORDER BY STOPKEY | N과 입력건수 | ROWNUM/FETCH/ROW_NUMBER 구조 점검 | 필수 | 부분숙달 (2026-09-07) — Stopkey 구조 판단은 정확, 낭비율 분모를 최종 결과건수가 아닌 중간단계로 계산 |
+| C10 | Top-N 결과 건수 | A | A | 전체 정렬/분석 전에 N건만 필요하면 Stopkey 가능성 | COUNT STOPKEY/SORT ORDER BY STOPKEY | N과 입력건수 | ROWNUM/FETCH/ROW_NUMBER 구조 점검 | 필수 | 부분숙달 (2026-09-09) — 낭비율 분모(Id 0 A-Rows) 고정 및 방향 오류 09-09 드릴에서 해소(5회 실패 후 4/4 정확). Stopkey 구조 판단은 기존대로 정확 |
 
 ## 2.2 Optimizer Statistics / 추정오류
 
