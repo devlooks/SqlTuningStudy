@@ -4,6 +4,7 @@
 - **자매 문서:** `SQLP_실기_테마별_숙련도.md`(진도·숙련도) / `이력/`(풀이 기록) / `AGENTS.md`(출제·채점·세션 운영)
 - **인코딩:** UTF-8 (LF)
 - **최종 재구성:** 2026-09-26. Oracle 기본 동작 기준으로 서술을 정정하고 중복을 제거했다. 절 번호 §1.3~§1.5, §2와 K번호·Pattern ID는 이력 참조를 위해 유지한다
+- **2026-09-26 개정:** R1에 ⓪ 지표 선택 추가, R2를 병목 유형 분기표로 일반화(기존 집계 위치 판별은 R2-집계), K01·K09·K17·K18·K19·K22·K25 개정, §1.8 두 트랙(SQLP / 전 영역) 신설, G11·A13 신설
 
 ---
 
@@ -51,6 +52,7 @@
 | 구분 | Operation |
 |---|---|
 | 블록을 직접 읽는다 | `TABLE ACCESS FULL`, `INDEX UNIQUE/RANGE/FULL/FAST FULL/SKIP SCAN`, `TABLE ACCESS BY INDEX ROWID`(자식 인덱스가 있어도 테이블 블록 방문 비용을 자기 Buffers로 가진다) |
+| DML에서 블록을 직접 읽는다 | `UPDATE`, `DELETE`, `INSERT`, `MERGE`, `LOAD AS SELECT` — 변경 대상 블록을 current 모드로 읽는다(K01 예외) |
 | 자기 Buffers가 0이다 | `NESTED LOOPS`, `HASH JOIN`, `MERGE JOIN`, `SORT`, `HASH/SORT GROUP BY`, `HASH/SORT UNIQUE`, `FILTER`, `UNION-ALL`, `VIEW`, `COUNT STOPKEY`, `PARTITION RANGE ...` |
 
 **검산식:** 블록을 직접 읽는 노드의 자기 Buffers 합 = Id 0 Buffers
@@ -78,8 +80,8 @@
 ## 1.2 답안 표준 동선
 
 ```
-R1  실행계획 판독 5-STEP   →  병목 Id + 낭비율 + 비중
-R2  처방 판별              →  개선 방향 한 줄
+R1  병목 판독 (⓪ 지표 선택 + 5-STEP) →  병목 Id + 낭비율 + 비중
+R2  처방 판별 (병목 유형 분기표)     →  개선 방향 한 줄 → 해당 테마 답안 골격
     개선 SQL 작성          →  G1을 작성하는 동안 채운다
 G1  힌트 사전검증 4항      →  물리적으로 성립하지 않는 힌트 차단
 G2  결과집합 3문장         →  행 수 / NULL / 중복
@@ -93,15 +95,27 @@ G2  결과집합 3문장         →  행 수 / NULL / 중복
 
 ## 1.3 루틴 (R)
 
-### R1. 실행계획 판독 5-STEP
+### R1. 병목 판독: ⓪ 지표 선택 + 5-STEP
 
-SQL을 보기 전에 실행계획 표만으로 수행한다. 열 규칙은 §1.1을 따른다.
+SQL을 보기 전에 실행계획·통계 표만으로 수행한다. 열 규칙은 §1.1을 따른다.
+
+**⓪ 지표 선택 — 무엇이 응답 시간을 지배하는가**
+
+| 문제에 주어진 신호 | 판독 지표 | 진행 |
+|---|---|---|
+| 실행계획 Buffers가 크고 Temp·대기 신호가 없다 | Buffers | 아래 ①~⑤ |
+| `Reads`·`Writes`·`TempSpc`·`Used-Tmp`가 크다, 1-pass/multi-pass | Temp·물리 I/O | Sort·Hash 노드도 병목 후보에 넣는다(자기 Buffers가 0이어도). 입력 건수와 메모리로 판단 (T07·T13 TR07) |
+| Trace의 Parse·Execute·Fetch 횟수가 결과 건수에 비례한다 | 호출 횟수 | T11 답안 골격 |
+| elapsed ≫ cpu, 락 대기 이벤트, 블로커 정보 | 대기 시간 | T12 답안 골격 |
+| PX 서버별 처리량 편차 | 편차 | T09 (TR08) |
+
+두 가지 이상이 겹치면 응답 시간 비중이 큰 쪽부터 판독한다. 이하 ①~⑤는 Buffers 지표일 때의 절차다.
 
 | STEP | 산출 | 공식 | 사용 열 | 근거 |
 |:---:|---|---|---|---|
-| ① | 목표 건수 | Id 0의 A-Rows | A-Rows | — |
+| ① | 목표 건수 | Id 0의 A-Rows. **병목이 집계 노드(`GROUP BY`·`DISTINCT`·`SORT AGGREGATE`) 아래에 있으면 가장 가까운 상위 집계 노드의 입력 건수(집계 직전 A-Rows)** | A-Rows | K09 |
 | ② | 병목 Id | 자기 Buffers가 최대인 노드 | Buffers | K01, K02, K11 |
-| ③ | 낭비율 (`배`) | 병목 A-Rows ÷ Id 0 A-Rows | **A-Rows만** | K09, K10 |
+| ③ | 낭비율 (`배`) | 병목 A-Rows ÷ ① 목표 건수 | **A-Rows만** | K09, K10 |
 | ③' | 1건당 블록 수 (`블록/건`) | 병목 자기 Buffers ÷ 병목 A-Rows | Buffers, A-Rows | K09 |
 | ④ | 비중 (`%`) | 병목 자기 Buffers ÷ Id 0 Buffers | **Buffers만** | K04 |
 | ⑤ | 검산 | 블록을 읽는 노드의 자기 Buffers 합 = Id 0 Buffers | Buffers | K03 |
@@ -109,12 +123,17 @@ SQL을 보기 전에 실행계획 표만으로 수행한다. 열 규칙은 §1.1
 **병목 유형 판정 (K09)**
 
 ```
-③ ≥ 1 → 행 낭비형   : 많이 가져와 상위에서 버리거나 압축한다
-③ < 1 → 블록 낭비형 : 상위의 1:N 조인이 최종 건수를 늘린 경우. ③'로 원인을 가른다
-          ├ 병목 Id에 filter 있음 + 자식 인덱스 A-Rows ≫ 병목 A-Rows → 테이블 필터로 버림
-          ├ filter 없음 + ③' ≈ 0.1~1.0 (ROWID 접근)               → 랜덤 I/O (클러스터링 팩터)
-          └ filter 없음 + ③' > 1 (ROWID 접근)                      → 행 이주·체이닝 의심
+③ ≥ 2 (뚜렷이 1보다 큼) → 행 낭비형   : 많이 가져와 상위의 조인·필터에서 버린다
+                                        (집계에 의한 압축은 ①에서 이미 제외했다)
+③ < 2 (1 근처 또는 미만) → 블록 낭비형 : 필요한 행에 블록을 많이 쓴다. ③'와 노드 종류로 원인을 가른다
+   ├ 병목이 NL Inner의 인덱스(또는 그 위 ROWID 노드) + Starts 큼
+   │   + 회당 Buffers(Buffers ÷ Starts) ≈ 인덱스 높이                 → NL 반복 탐색 → 조인 방식 판단(K17~K19)
+   ├ 병목 Id에 filter 있음 + 자식 인덱스 A-Rows ≫ 병목 A-Rows         → 테이블 필터로 버림 → 인덱스 설계(K31·K33)
+   ├ filter 없음 + ③' ≈ 0.1~1.0 (ROWID 접근)                       → 랜덤 I/O (클러스터링 팩터)
+   └ filter 없음 + ③' > 1 (ROWID 접근, 반복 탐색 아님)                → 행 이주·체이닝 의심
 ```
+
+③이 1 미만인 경우는 병목 위의 1:N 조인이 최종 건수를 늘린 경우다. 1 미만이 나왔다고 분자·분모를 뒤집지 않는다.
 
 **단위 검산 (K10)**
 - ③은 `배`, ④는 `%`. 단위가 맞지 않으면 열을 잘못 읽은 것이다.
@@ -123,16 +142,39 @@ SQL을 보기 전에 실행계획 표만으로 수행한다. 열 규칙은 §1.1
 **R1 답안 양식**
 
 ```text
-① 목표 건수 = Id 0 A-Rows ______
+⓪ 판독 지표 = Buffers / Temp·물리 I/O / 호출 횟수 / 대기 시간 (하나 선택, 근거 한 줄)
+① 목표 건수 = Id ___ A-Rows ______   (병목 위에 집계 노드가 있으면 집계 직전 노드, 없으면 Id 0)
 ② 병목 Id ______ / 자기 Buffers ______
-③  낭비율     = 병목 A-Rows ______ ÷ Id 0 A-Rows ______ = ______ 배
+③  낭비율     = 병목 A-Rows ______ ÷ ① 목표 건수 ______ = ______ 배
 ③' 1건당 블록 = 병목 자기 Buffers ______ ÷ 병목 A-Rows ______ = ______ 블록/건
    유형: 행 낭비형 / 블록 낭비형 (근거 한 줄)
 ④ 비중       = 병목 자기 Buffers ______ ÷ Id 0 Buffers ______ = ______ %
 ⑤ 검산       = 블록을 읽는 노드 자기 Buffers 합 ______ = Id 0 Buffers ______
 ```
 
-### R2. 처방 판별: 집계 위치
+### R2. 처방 판별: 병목 유형 분기표
+
+R1에서 확정한 병목 유형으로 처방 방향을 고르고, 해당 테마의 답안 골격(§2)으로 넘어간다. 판정을 한 줄로 적은 뒤 SQL을 쓰고, 제출 전 판정 문장과 SQL 구조를 대조한다(K35).
+
+| 병목 유형 (R1 결과) | 처방 판단 | 기준 | 답안 골격 |
+|---|---|---|---|
+| NL Inner 반복 탐색 (Starts 큼, 회당 ≈ 높이) | 조인 방식·순서를 바꿀지, Outer를 줄일지 | K13~K19 | T03 |
+| 테이블 필터로 버림 / 인덱스 filter / 테이블 방문 과다 | 인덱스 컬럼 추가·순서 변경, 커버링, 조건 재작성 | K30~K33 | T02 |
+| 조건 가공·형변환으로 FULL 또는 프루닝 실패 | 조건 재작성 (범위식·타입 일치) | K06 | T02 / T08 |
+| 조인·필터 뒤 대량 집계, 1:N 증폭 뒤 집계 | 집계 위치 (아래 R2-집계) | K20~K24 | T07 |
+| 1:N 증폭 뒤 DISTINCT, 존재 확인용 조인 | 세미·안티 전환 후 DISTINCT 제거 | K29 | T04 |
+| 서브쿼리 반복 (FILTER·스칼라 Starts 큼) / 필터 시점이 늦음 | UNNEST vs NO_UNNEST+PUSH_SUBQ, 조인+1회 집계 | K25~K28 | T05 |
+| 입력값 유무·OR로 한 계획이 모든 호출을 처리 | 분기 SQL / UNION ALL + 배타 조건 | K34 | T06 |
+| 정렬 후 N건만 사용, WINDOW SORT 후 소수 사용 | 정렬 생략 인덱스 + Stopkey | K19, K32 | T07 |
+| 병렬 재분배·복제 과다 | 분배 방식 / PWJ | K17·K18 | T09 |
+| 대량 변경의 Undo·Redo·인덱스 유지 | DML vs 재구성(CTAS·EXCHANGE·TRUNCATE) | — | T10 |
+| 호출 횟수 과다 (⓪에서 호출 지표) | 집합 처리, Array·Bulk | — | T11 |
+| 대기 시간 지배 (⓪에서 대기 지표) | 블로커·트랜잭션 범위·FK 인덱스 | — | T12 |
+| Temp 사용 (⓪에서 Temp 지표) | 입력 축소(선필터·선집계) 또는 방식 변경 | K20 | T07 / T13 |
+
+- 한 문제에 병목 유형이 둘 이상이면 **건수를 바꾸는 처방(조건 재작성·선필터·선집계·세미 전환)을 먼저 정하고, 조인 방식은 그 결과 건수로 마지막에 정한다.** 건수가 바뀌면 K18의 Outer 건수가 바뀌어 조인 방식 결론이 뒤집힐 수 있다.
+
+#### R2-집계: 집계 위치 판별
 
 | STEP | 확정할 것 |
 |:---:|---|
@@ -141,8 +183,7 @@ SQL을 보기 전에 실행계획 표만으로 수행한다. 열 규칙은 §1.1
 | ③ | **C** = 최종 `GROUP BY` 바로 아래 노드의 A-Rows (모든 조인·필터 후 집계 직전 건수) |
 | ④ | **조인의 역할** — 행을 줄이는 필터인가, 컬럼만 붙이는가 (K21) |
 | ⑤ | 결론: `B ≈ C` 또는 `C > B` → **선집계** / `C`가 `B`보다 자릿수로 작음 → **후집계** |
-
-판별 결과를 한 줄로 적은 뒤 SQL을 쓰고, 제출 전 판정 문장과 SQL 구조를 대조한다(K35).
+| ⑥ | 선집계라면 집계 결과 건수로 **조인 방식을 다시 판단**한다(K18의 Outer 건수 = 집계 결과 건수) |
 
 ```text
 1. 금액·건수 컬럼이 속한 팩트 테이블:
@@ -185,7 +226,7 @@ SQL을 작성하는 동안 힌트를 쓸 때마다 해당 항을 함께 확인�
 
 | K | 기준 | 내용 |
 |:---:|---|---|
-| **K01** | Buffers 누적 규칙 | 부모 Buffers = 자기 것 + 자식 전부. 블록을 직접 읽는 노드는 테이블·인덱스 액세스 노드뿐이며, `TABLE ACCESS BY INDEX ROWID`는 자식 인덱스를 뺀 나머지가 자기 비용이다. 이 노드들의 자기 Buffers 합 = Id 0 Buffers |
+| **K01** | Buffers 누적 규칙 | 부모 Buffers = 자기 것 + 자식 전부. 조회문에서 블록을 직접 읽는 노드는 테이블·인덱스 액세스 노드뿐이며, `TABLE ACCESS BY INDEX ROWID`는 자식 인덱스를 뺀 나머지가 자기 비용이다. 이 노드들의 자기 Buffers 합 = Id 0 Buffers. **예외:** DML 문의 `UPDATE`·`DELETE`·`INSERT`·`MERGE`·`LOAD AS SELECT` 노드는 변경할 블록을 current 모드로 읽으므로 자기 Buffers를 가진다. 이때는 이 노드도 검산식의 항에 넣는다 |
 | **K02** | 블록 미접근 노드 | `HASH JOIN` / `NESTED LOOPS` / `SORT` / `GROUP BY` / `FILTER` / `UNION-ALL` / `PARTITION RANGE ...`는 자기 Buffers가 0이다 |
 | **K03** | 검산 | 항의 개수 = 블록을 읽는 노드의 개수. 부모의 누적값을 항에 넣으면 자식이 중복되어 합계가 초과한다. 실제로 더해서 확인한다 |
 | **K04** | 병목 후보 컷오프 | 전체 Buffers 비중 5% 미만인 노드는 병목 후보에서 제외한다 |
@@ -198,7 +239,7 @@ SQL을 작성하는 동안 힌트를 쓸 때마다 해당 항을 함께 확인�
 | K | 기준 | 내용 |
 |:---:|---|---|
 | **K08** | 병목의 정의 | 비용이 큰 곳 중에서 **줄이거나 뒤로 미룰 수 있는 낭비**가 있는 곳이다. 판정 질문은 "이 작업을 줄이거나 나중에 해도 결과가 같은가"이다 |
-| **K09** | 병목의 두 유형 | ③ ≥ 1이면 행 낭비형, ③ < 1이면 블록 낭비형이며 ③'(자기 Buffers ÷ A-Rows)로 판단한다. 1 미만이 나왔다고 분자·분모를 뒤집지 않는다 |
+| **K09** | 병목의 두 유형 | 낭비율 ③의 분모(목표 건수)는 Id 0 A-Rows다. 단 병목 위에 집계 노드(`GROUP BY`·`DISTINCT`·`SORT AGGREGATE`)가 있으면 **집계 직전 노드의 A-Rows**를 쓴다. 집계에 의한 행 감소는 필요한 작업이지 낭비가 아니기 때문이다(K08). ③이 뚜렷이 1보다 크면(대략 2배 이상) 행 낭비형, 1 근처 또는 미만이면 블록 낭비형이며 ③'(자기 Buffers ÷ A-Rows)와 노드 종류로 원인을 가른다. NL Inner 인덱스의 회당 Buffers가 인덱스 높이와 같으면 반복 탐색이다. 1 미만이 나왔다고 분자·분모를 뒤집지 않는다 |
 | **K10** | ③·④ 상호검산 | ③은 `배`, ④는 `%`. ③이 1 근처인데 ④가 크면 블록 낭비형 판정이 빠진 것이다 |
 | **K11** | 반복 횟수 ≠ 병목 | Starts가 크다고 병목이 아니다. 판정은 자기 Buffers로 한다 |
 | **K12** | FULL ≠ 병목 | `TABLE ACCESS FULL`은 대량 처리에서 정상 경로다. 비중(K04)을 먼저 본다 |
@@ -216,17 +257,17 @@ SQL을 작성하는 동안 힌트를 쓸 때마다 해당 항을 함께 확인�
 
 | K | 기준 | 내용 |
 |:---:|---|---|
-| **K17** | 자릿수 비교 | `Outer 건수`와 `Inner FULL 블록 수`를 나란히 적는다. Outer가 한 자릿수 이상 작으면 NL, 비슷하거나 크면 HASH가 유리하다 |
-| **K18** | 손익분기 정량식 | NL 비용 ≈ Outer 건수 × (인덱스 높이 + 테이블 1회) ≈ Outer × 4. HASH 비용 ≈ 양쪽 입력 블록 수(1회). 따라서 손익분기 Outer 건수 ≈ Inner FULL 블록 수 ÷ 4. FULL은 멀티블록 I/O라 실제 손익분기는 이보다 낮다. Inner를 FULL로 읽을 때는 `USE_HASH`와 함께 쓴다 |
-| **K19** | 배치 vs 온라인 | 전체범위 처리(배치·집계)는 HASH·FULL이 정당하다. 부분범위 처리(온라인·Top-N)는 NL + 인덱스 + Stopkey가 유리하다 |
+| **K17** | 자릿수 어림 (1차) | `Outer 건수`와 `Inner FULL 블록 수`를 나란히 적어 자릿수를 본다. Outer가 한 자릿수 이상 작으면 NL 쪽, 같은 자릿수 이상이면 HASH 쪽이 거의 확실하다. **어림일 뿐이며 결론은 K18 계산으로 낸다.** 두 기준이 다르게 보이는 구간(Outer ≈ 블록 수의 1/10~1/4)은 반드시 K18로 판정한다 |
+| **K18** | 손익분기 정량식 | **비교식:** NL의 Inner 비용 = Outer 건수 × Inner 1회 비용, HASH의 Inner 비용 = Inner FULL 블록 수(1회). Outer를 읽는 비용은 양쪽에 똑같이 들므로 **비교에서 뺀다**(전체 Buffers를 추정할 때만 더한다). **Inner 1회 비용** = 인덱스 높이 + Outer 1건당 Inner 행 수(테이블 방문). 높이 3·1건당 1행이면 4이므로 손익분기 Outer 건수 ≈ Inner FULL 블록 수 ÷ 4. 1건당 N행이면 ÷(높이 + N)으로 계산한다. **값의 출처:** Outer 건수 = Outer 노드의 A-Rows(= NL Inner의 Starts). 선집계 뒤에 조인하면 집계 결과 건수. Inner FULL 블록 수 = **테이블 통계의 블록 수**. 실행계획에 찍힌 NL Inner 노드의 Buffers는 NL 실측 비용이지 FULL 비용이 아니다. **예외:** Inner에 조인키로 시작하는 인덱스가 없으면 NL 비용 = Outer 건수 × Inner FULL 블록 수이므로 HASH다. FULL은 멀티블록 I/O라 실제 손익분기는 계산값보다 낮다. Inner를 FULL로 읽을 때는 `USE_HASH`와 함께 쓴다 |
+| **K19** | 전체범위 vs 부분범위 | 판단 질문은 "온라인인가"가 아니라 **"결과를 전부 쓰는가, 앞의 N건에서 멈추는가"**다. 온라인 화면이라도 결과를 전부 가져가면 전체범위 처리이므로 K18 숫자로 정한다. 배치·집계는 전체범위다. 부분범위 처리(`ROWNUM`/Top-N)이고 정렬을 드라이빙 인덱스로 해결해 Stopkey가 가능하면, K18의 Outer 건수에는 전체 후보 건수가 아니라 **실제로 조인까지 가는 N건**을 넣는다. 이 경우 NL + 인덱스 + Stopkey가 유리하다. 정렬을 인덱스로 해결하지 못하면 전체를 읽고 정렬해야 하므로 전체범위로 본다 |
 
 ### E. 집계 위치 (K20~K24)
 
 | K | 기준 | 내용 |
 |:---:|---|---|
-| **K20** | 선집계 판별 | 조인이 행을 크게 줄이면(필터 조인) **후집계**, 조인이 행을 유지하거나 늘리면(붙이기·1:N) **선집계**. R2의 B와 C를 비교해 판정한다 |
+| **K20** | 선집계 판별 | 조인이 행을 크게 줄이면(필터 조인) **후집계**, 조인이 행을 유지하거나 늘리면(붙이기·1:N) **선집계**. R2-집계의 B와 C를 비교해 판정한다 |
 | **K21** | 조인의 역할 | 조인 상대가 PK/UK이고, 상대 쪽에 조건이 없고, 조인 컬럼이 NOT NULL이며 무결성이 보장되면 행 수는 변하지 않는다(붙이기). 상대 쪽에 WHERE 조건이 있으면 필터 조인이다 |
-| **K22** | 변환 가능 집계함수 | `SUM`·`COUNT`·`MIN`·`MAX`는 두 단계로 나눠 집계해도 결과가 같다. `AVG`는 `SUM`과 `COUNT`로 분해해 마지막에 나누고, `COUNT(DISTINCT)`는 두 단계로 나눌 수 없다 |
+| **K22** | 변환 가능 집계함수 | `SUM`·`COUNT`·`MIN`·`MAX`는 두 단계로 나눠 집계할 수 있다. 단 **바깥 단계의 함수가 바뀐다**: 안 `SUM` → 밖 `SUM`, 안 `COUNT(*)`·`COUNT(col)` → 밖 **`SUM(건수)`**(밖에서 `COUNT`를 쓰면 그룹 수를 세게 된다), 안 `MIN`/`MAX` → 밖 `MIN`/`MAX`. `AVG`는 안에서 `SUM`과 `COUNT(col)`로 분해해 밖에서 `SUM(합) / SUM(건수)`로 나눈다. `COUNT(DISTINCT)`는 두 단계로 나눌 수 없다 |
 | **K23** | 선집계 안전 조건 | 선집계 결과와 조인하는 상대가 그 키에 대해 유일(PK/UK)해야 한다. 아니면 집계값이 중복 가산된다 |
 | **K24** | 선집계 인라인뷰 골격 | 뷰의 `GROUP BY`에 바깥 조인키를 포함하고, 뷰 병합을 막으려면 `NO_MERGE`를 쓴다. 조건을 뷰 안으로 내릴 때 다른 지표가 사라지지 않는지 확인한다(예: 상태코드 조건을 WHERE로 내려 취소 건수가 사라짐 → `CASE WHEN`으로 처리) |
 
@@ -234,7 +275,7 @@ SQL을 작성하는 동안 힌트를 쓸 때마다 해당 항을 함께 확인�
 
 | K | 기준 | 내용 |
 |:---:|---|---|
-| **K25** | UNNEST 시 LEADING 구성 | 서브쿼리를 풀면 서브쿼리 테이블도 조인 순서의 대상이다. `LEADING`에 포함하고, 필터 효과가 크면 앞쪽(보통 2순위)에 둔다 |
+| **K25** | UNNEST 시 LEADING 구성 | 서브쿼리를 풀면 서브쿼리 테이블도 조인 순서의 대상이다. `LEADING`에 포함하고, 필터 효과가 크면 앞쪽(보통 2순위)에 둔다. 서브쿼리 테이블은 다른 쿼리 블록의 별칭이므로 서브쿼리에 `QB_NAME(qb)`를 주고 메인 힌트에서는 `별칭@qb`로 쓴다 |
 | **K26** | 두 접근안 병기 | 서브쿼리 필터 시점 문제는 ① `UNNEST` + 세미조인, ② `NO_UNNEST` + `PUSH_SUBQ` 두 안을 모두 검토하고 손익분기로 택한다 |
 | **K27** | NO_MERGE / PUSH_PRED 선택 | 뷰가 행을 줄이면 `NO_MERGE`로 독립 실행한다. 뷰 결과 전체가 필요하면 `USE_HASH`, 바깥 행에 해당하는 일부만 필요하면 `PUSH_PRED` + `USE_NL`로 뷰 안의 인덱스를 쓴다 |
 | **K28** | PUSH_PRED 짝 | 조인 조건 푸시다운은 NL에서만 성립한다. `USE_HASH`와 함께 쓰면 무효다. `PUSH_PRED(뷰별칭)`은 뷰 바깥 쿼리 블록에 쓴다 |
@@ -316,7 +357,7 @@ SELECT /*+ LEADING(A B C)            -- 조인 순서
 | 의도 | 힌트 위치 | 힌트 |
 |---|---|---|
 | 서브쿼리를 조인(세미/안티)으로 푼다 | 서브쿼리 안 | `UNNEST` (+ 필요 시 `NL_SJ`/`HASH_SJ`/`NL_AJ`/`HASH_AJ`) |
-| 풀린 서브쿼리 테이블의 순서·방식 제어 | 메인 쿼리 | `LEADING(메인 서브Q ...)`, `USE_NL(서브Q)` 등 |
+| 풀린 서브쿼리 테이블의 순서·방식 제어 | 메인 쿼리 (서브쿼리에는 `QB_NAME(qb)`) | `LEADING(메인 서브Q별칭@qb ...)`, `INDEX(서브Q별칭@qb 인덱스)` 등. 다른 쿼리 블록의 별칭이므로 `@qb`를 붙인다(§1.6.4) |
 | 풀지 않고 FILTER로 남긴다 | 서브쿼리 안 | `NO_UNNEST` |
 | FILTER를 조인 중간에 먼저 수행한다 | 서브쿼리 안 | `NO_UNNEST PUSH_SUBQ` |
 
@@ -424,6 +465,31 @@ SELECT /*+ LEADING(A B C)            -- 조인 순서
 
 Oracle 기능이 존재한다는 사실만으로 S/A로 올리지 않는다. 패턴 표의 `근거` 열은 §1.7 근거 등급이다.
 
+### 두 트랙: 출제 우선순위와 숙달 범위
+
+중요도 등급(S/A/B/C/F)은 **SQLP 출제 우선순위**다. 숙달 범위는 이와 별도로 **SQL 튜닝 전 영역**으로 잡는다. 등급별 목표 수준은 다음과 같다.
+
+| 등급 | SQLP 트랙 (시험 전, 2회독 종료 조건) | 전 영역 트랙 (시험 후 숙달 기준) |
+|:---:|---|---|
+| S / A | 실전 가능 — 진급 게이트 대상 | 실전 가능 |
+| B | 개념 설명 가능 | 적용 가능 (실기형 문제에서 처방으로 쓸 수 있음) |
+| C | 위치만 확인 | 개념 설명 가능 |
+| F | 위치만 확인 | 위치만 확인 |
+
+- **실전 가능:** 테마 비공개 실기형 문제에서 첫 제출로 진단·처방·검증을 완주한다.
+- **적용 가능:** 해당 패턴이 들어간 실기형 문제에서 처방 방향을 고르고 SQL·DDL로 옮긴다.
+- **개념 설명 가능:** 원리와 대표 징후를 한두 문장으로 설명하고, 실행계획·지표에서 알아본다.
+
+**등급과 무관하게 전 영역 트랙에서 "적용 가능"을 목표로 하는 항목**
+
+| ID | 항목 | 이유 |
+|---|---|---|
+| X02~X04 | SQL Plan Baseline / SQL Profile / SQL Patch | SQL을 고칠 수 없는 운영 환경의 1차 수단 |
+| X10~X12 | 대기 이벤트 / AWR·ASH / SQL Monitor | Troubleshooting(TR) 판단의 증거 지표 |
+| X09 | IOT / Cluster | 액세스 경로 설계의 선택지 |
+
+출제는 SQLP 트랙을 따른다. 전 영역 트랙 항목은 SQLP 트랙 완료 전에는 S/A 문제에 결합하는 형태로만 다룬다.
+
 ### 분류
 
 | # | 영역 | ID | 테마 |
@@ -528,7 +594,7 @@ Oracle 기능이 존재한다는 사실만으로 S/A로 올리지 않는다. 패
 
 ## T02 Predicate / Access / Index
 
-- **범위:** `P01~P10`, `A01~A12`, `I01~I08`
+- **범위:** `P01~P10`, `A01~A13`, `I01~I08`
 - **대표 판단:** 조건의 인덱스 사용 가능성, access/filter, 인덱스 설계
 - **핵심 기준:** K30~K33
 
@@ -575,6 +641,7 @@ Oracle 기능이 존재한다는 사실만으로 S/A로 올리지 않는다. 패
 | A10 | Batched ROWID Access | C | C | ROWID 방문을 묶어 블록 접근 효율을 높인다 | ... ROWID BATCHED | 개념 확인 |
 | A11 | Bitmap Index | B | C | 낮은 NDV 다중 조건 분석에 유리, DML 동시성 취약 | BITMAP ... | OLTP 여부 판단 |
 | A12 | Function-Based Index | A | B | 반복되는 식을 인덱스 키로 저장 | RANGE SCAN on FBI | SQL 재작성과 비교 |
+| A13 | 행 이주 · 체이닝 | B | B | UPDATE로 커진 행이 다른 블록으로 옮겨가면 ROWID 방문 1회에 블록을 2개 이상 읽는다 | ROWID 노드의 1건당 블록 수 > 1 (반복 탐색 아님, K09) | PCTFREE 조정 후 재구성(MOVE·CTAS) |
 
 #### Index 설계 / 물리 특성
 
@@ -607,12 +674,12 @@ Oracle 기능이 존재한다는 사실만으로 S/A로 올리지 않는다. 패
 |---|---|
 | ① | 건수 축소 순서: 테이블별 `[조건] 전체 N건 → M건`을 축소 효과가 큰 순으로 |
 | ② | 조인 순서: `T1 → T2 → T3` + 인접한 두 테이블마다 조인 조건 한 줄 (K15) |
-| ③ | 조인 방식: Outer 건수 vs Inner FULL 블록 수 ÷ 4 (K18) |
+| ③ | 조인 방식: K18 비교식과 K19 범위 판단을 따른다 |
 
 ```
-NL   비용 ≈ Outer 건수 × (인덱스 높이 + 1) ≈ Outer × 4
-HASH 비용 ≈ 양쪽 입력 블록 수 (각 1회)
-Outer 건수 > Inner 블록 수 ÷ 4 → HASH + FULL / 아니면 NL + 인덱스
+NL 쪽   = Outer 건수 × Inner 1회 비용(인덱스 높이 + 1건당 Inner 행 수)
+HASH 쪽 = Inner FULL 블록 수 (테이블 통계)
+Outer 읽는 비용은 양쪽 공통이라 비교에서 뺀다 → NL 쪽 < HASH 쪽이면 NL + 인덱스, 아니면 HASH + FULL
 ```
 
 NL의 Inner를 FULL로 읽으면 Outer 건수만큼 풀스캔이 반복된다. FULL은 `USE_HASH`와 함께 쓴다.
@@ -687,7 +754,7 @@ NL의 Inner를 FULL로 읽으면 Outer 건수만큼 풀스캔이 반복된다. F
 
 ```
 풀지 않음 → 서브쿼리에 NO_UNNEST PUSH_SUBQ, LEADING에는 서브쿼리 테이블 없음
-풀기     → 서브쿼리에 UNNEST, LEADING에 서브쿼리 테이블 포함 + USE_NL/NL_SJ 등
+풀기     → 서브쿼리에 QB_NAME(qb) UNNEST, 메인 LEADING에 서브쿼리 테이블을 별칭@qb로 포함 + NL_SJ/HASH_SJ 등
 인라인 뷰 → NO_UNNEST가 아니라 NO_MERGE
 ```
 
@@ -761,8 +828,8 @@ SELECT R.RESV_NO, R.PATIENT_ID, D.DEPT_NM, DOC.DOC_NM
                   AND E.LOG_DT >= '20260817');
 
 -- 안 2: 풀어서 세미조인을 2순위로 수행
-SELECT /*+ LEADING(R E D DOC) USE_NL(E) USE_NL(D) USE_NL(DOC)
-           INDEX(R IX_RESV_01) INDEX(E IX_EMRG_01)
+SELECT /*+ LEADING(R E@SQ D DOC) USE_NL(D) USE_NL(DOC)
+           INDEX(R IX_RESV_01) INDEX(E@SQ IX_EMRG_01)
            INDEX(D PK_TB_DEPT) INDEX(DOC PK_TB_DOCTOR) */
        R.RESV_NO, R.PATIENT_ID, D.DEPT_NM, DOC.DOC_NM
   FROM TB_RESERV R, TB_DEPT D, TB_DOCTOR DOC
@@ -770,7 +837,7 @@ SELECT /*+ LEADING(R E D DOC) USE_NL(E) USE_NL(D) USE_NL(DOC)
    AND R.DOC_ID = DOC.DOC_ID
    AND R.RESV_STAT_CD = '01'
    AND R.RESV_DT = '20260817'
-   AND EXISTS (SELECT /*+ UNNEST NL_SJ */ 1
+   AND EXISTS (SELECT /*+ QB_NAME(SQ) UNNEST NL_SJ */ 1
                  FROM TB_EMERGENCY_LOG E
                 WHERE E.PATIENT_ID = R.PATIENT_ID
                   AND E.EMRG_LEVEL = 'L1'
@@ -779,6 +846,7 @@ SELECT /*+ LEADING(R E D DOC) USE_NL(E) USE_NL(D) USE_NL(DOC)
 
 - 조인 조건이 없는 D와 DOC를 R보다 먼저 두면 카티션 곱이 된다(K15).
 - 서브쿼리는 상관키(`PATIENT_ID`)를 공급하는 R을 읽은 뒤에만 수행할 수 있다.
+- 안 2에서 E는 서브쿼리 블록의 별칭이므로 메인 힌트에서는 `QB_NAME(SQ)`로 이름을 붙이고 `E@SQ`로 지정한다. 세미조인 방식은 서브쿼리 안의 `NL_SJ`가 정한다.
 
 #### 스칼라 서브쿼리 → OUTER JOIN + 1회 집계
 
@@ -893,7 +961,7 @@ SELECT *
 
 ## T07 GROUP BY / Sort / Top-N
 
-- **범위:** `C08~C10`, `O01~O06`, `G01~G10`
+- **범위:** `C08~C10`, `O01~O06`, `G01~G11`
 - **대표 판단:** 집계 위치, 정렬 생략, Stopkey, 분석함수
 - **핵심 기준:** K20~K24, K32
 
@@ -901,7 +969,7 @@ SELECT *
 
 | | 확정할 것 |
 |---|---|
-| ① | 집계 위치: R2로 B와 C를 비교해 선집계/후집계 판정. 선집계면 `NO_MERGE` 인라인 뷰 |
+| ① | 집계 위치: R2-집계로 B와 C를 비교해 선집계/후집계 판정. 선집계면 `NO_MERGE` 인라인 뷰 |
 | ② | 정렬 생략 인덱스: `(등치 조건, 정렬 컬럼1, 정렬 컬럼2 …)`로 SORT 제거 |
 | ③ | Stopkey 성립: 인라인 뷰의 `ORDER BY`가 인덱스 순서로 처리되어 `ROWNUM <= N`에서 멈추는가 |
 
@@ -911,7 +979,7 @@ SELECT *
 |---|---|:---:|:---:|---|---|---|
 | G01 | HASH GROUP BY | S | A | 해시 기반 그룹 집계. 비용은 입력 행 수와 메모리 | HASH GROUP BY | 선필터 / 선집계 |
 | G02 | SORT GROUP BY | S | A | 정렬 기반 그룹 집계. 인덱스 순서로 입력이 오면 정렬 생략 가능 | SORT GROUP BY (NOSORT) | 인덱스 / 입력 축소 |
-| G03 | GROUP BY 위치 | S | A | 조인 전후 집계 위치가 중간 건수와 결과 의미를 바꾼다 | GROUP BY 자식 A-Rows | R2, K20~K24 |
+| G03 | GROUP BY 위치 | S | A | 조인 전후 집계 위치가 중간 건수와 결과 의미를 바꾼다 | GROUP BY 자식 A-Rows | R2-집계, K20~K24 |
 | G04 | COUNT(*) vs COUNT(col) | A | B | `COUNT(col)`은 NULL을 세지 않는다 | Aggregate | NULL 의미 확인 |
 | G05 | WINDOW SORT | A | A | 분석함수는 PARTITION BY·ORDER BY 순서로 정렬 | WINDOW SORT | 입력 축소 / 인덱스 |
 | G06 | WINDOW NOSORT | A | A | 입력이 이미 요구 순서면 정렬 생략 | WINDOW NOSORT | `(PARTITION BY 컬럼, ORDER BY 컬럼)` 인덱스 |
@@ -919,6 +987,7 @@ SELECT *
 | G08 | ROWNUM Top-N | S | A | `ORDER BY`를 인라인 뷰 안에 두고 바깥에서 `ROWNUM` | COUNT STOPKEY | 적용 순서 검증 |
 | G09 | ROW_NUMBER Top-N | S | A | 그룹별 Top-N. `rn <= N` 조건이 WINDOW 단계에서 조기 종료되는지 확인 | WINDOW SORT PUSHED RANK / NOSORT STOPKEY | 인덱스 / 조인 푸시다운 |
 | G10 | FETCH FIRST | A | A | 12c+ Top-N 문법. 내부적으로 ROW_NUMBER로 변환된다 | WINDOW ... STOPKEY | ROWNUM 대안도 숙지 |
+| G11 | 페이징 쿼리 | A | B | 뒤 페이지로 갈수록 앞 페이지 행을 모두 읽고 버린다. 정렬 인덱스 + Stopkey로 읽는 양을 `끝 행 번호`로 제한하고, 깊은 페이지는 직전 페이지의 마지막 키로 이어 읽는다 | COUNT STOPKEY + 바깥 `RNUM >= 시작` filter | 3단 ROWNUM 인라인 뷰 / 키 기반 페이징 |
 
 ### T07 · 보강
 
@@ -950,7 +1019,7 @@ SELECT /*+ LEADING(C V) USE_HASH(V) */
 - 뷰의 `GROUP BY`에 바깥 조인키(`CUST_ID`)가 있어야 한다(K24). 조인 상대 `TB_CUST`는 `CUST_ID`가 PK라 증폭이 없다(K23).
 - 원본이 고객을 모두 보존했다면 `LEFT OUTER JOIN`, 주문이 있는 고객만 나왔다면 INNER JOIN이다(G2-①).
 - 원본이 `ORD_CNT`가 없는 고객을 NULL로 보여줬다면 `NVL`을 씌우지 않는다(G2-②).
-- **판정 주의:** 위 SQL은 VIP가 아닌 고객의 주문까지 모두 집계한다. VIP 조건이 고객을 크게 줄이면 조인이 필터 역할을 하므로(K21), 선집계보다 VIP 고객별로 주문을 인덱스 탐색하는 방식(`PUSH_PRED` + `USE_NL`)이나 후집계가 더 쌀 수 있다. R2의 B와 C로 판단한다.
+- **판정 주의:** 위 SQL은 VIP가 아닌 고객의 주문까지 모두 집계한다. VIP 조건이 고객을 크게 줄이면 조인이 필터 역할을 하므로(K21), 선집계보다 VIP 고객별로 주문을 인덱스 탐색하는 방식(`PUSH_PRED` + `USE_NL`)이나 후집계가 더 쌀 수 있다. R2-집계의 B와 C로 판단한다.
 
 #### 그룹별 최신 1건
 
@@ -971,7 +1040,9 @@ SELECT /*+ LEADING(E V) USE_NL(V) */
 
 - `CROSS APPLY`/`LATERAL`(12c+)은 상관 조건이 명시되어 있어 `PUSH_PRED` 없이 사원마다 인덱스를 역순으로 1건 읽는다.
 - 결재가 없는 사원도 보존하려면 `OUTER APPLY`를 쓴다.
-- 11g에서는 필요한 값을 스칼라 서브쿼리로 구하되, 정렬 후 `ROWNUM`을 거는 인라인 뷰 형태로 작성한다.
+- 11g에는 `CROSS APPLY`가 없다. 또 스칼라 서브쿼리 안에 "정렬 인라인 뷰 + 바깥 `ROWNUM`"을 두면 상관 참조가 두 단계 깊이가 되어 11g에서는 ORA-00904가 난다. 11g 대안은 둘이다.
+  - **단일 블록 스칼라 서브쿼리:** `(SELECT /*+ INDEX_DESC(A IX_TB_APPR_01) */ A.APPR_AMT FROM TB_APPR A WHERE A.EMP_ID = E.EMP_ID AND ROWNUM <= 1)`. `ORDER BY` 없이 인덱스 역순 탐색에 기대는 방식이라 인덱스가 바뀌면 결과가 틀어질 수 있다. 필요한 컬럼마다 서브쿼리가 하나씩 필요하다.
+  - **KEEP 집계:** `MAX(A.APPR_AMT) KEEP (DENSE_RANK LAST ORDER BY A.APPR_DT)`로 사원별 최신 행의 값을 구한다. 결과는 정확하지만 대상 사원의 결재를 모두 읽는다.
 
 **해법 2: ROW_NUMBER + 인덱스 순서** (전체 대상 배치일 때)
 
@@ -991,7 +1062,7 @@ SELECT EMP_ID, APPR_NO, APPR_DT, APPR_AMT
 | 선집계 뷰에 `NO_MERGE`가 필요한 이유 | 옵티마이저가 Complex View Merging으로 뷰를 풀어 조인 후 집계로 되돌릴 수 있기 때문이다 |
 | 선집계 뷰와는 HASH만 가능한가 | 아니다. 바깥 건수가 소량이면 `PUSH_PRED` + `USE_NL`로 뷰 안 인덱스를 탐색할 수 있다 |
 | `PUSH_PRED`에 USE_NL이 필요한 이유 | 바깥 행의 값을 받아 뷰를 행마다 실행하는 구조이므로 NL에서만 성립한다 |
-| 집계 순서를 바꿔도 되는 함수 | `SUM`·`COUNT`·`MIN`·`MAX`. `AVG`는 `SUM`/`COUNT`로 분해한다 (K22) |
+| 집계 순서를 바꿔도 되는 함수 | `SUM`·`COUNT`·`MIN`·`MAX`. 바깥 단계에서 `COUNT`는 `SUM(건수)`로 바꾸고, `AVG`는 `SUM(합)/SUM(건수)`로 분해한다 (K22) |
 
 ---
 
@@ -1436,7 +1507,7 @@ SELECT ... FROM 테이블 WHERE 조건 FOR UPDATE SKIP LOCKED; -- 잠긴 행 건
 
 ### Plan Stability / 기타
 
-직접 출제 근거가 약한 영역이다. B/C 우선순위로 개념 위치만 확인한다.
+SQLP 직접 출제 근거가 약한 영역이다. SQLP 트랙에서는 B/C 우선순위로 개념 위치만 확인하고, 전 영역 트랙의 목표 수준은 §1.8 두 트랙 표를 따른다(X02~X04, X09~X12는 적용 가능 목표).
 
 | ID | 패턴 | 중요도 | 근거 | 핵심 원리 |
 |---|---|:---:|:---:|---|
@@ -1476,13 +1547,13 @@ SELECT ... FROM 테이블 WHERE 조건 FOR UPDATE SKIP LOCKED; -- 잠긴 행 건
 | 검증 축 | 주요 ID |
 |---|---|
 | 조건 가공 | P01~P05, CP06 |
-| 인덱스 사용·설계 | A02~A12, I01~I08 |
+| 인덱스 사용·설계 | A02~A13, I01~I08 |
 | NL/Hash/Merge | J01~J05 |
 | 조인 순서 | J04 |
 | Semi/Anti | J07/J08, R02/R03 |
 | Cardinality/Starts/A-Rows | C01~C10, E01~E03 |
 | DISTINCT·중복 증폭 | C09, O02/O03, CP01 |
-| Top-N/Stopkey/분석함수 | G05~G10 |
+| Top-N/Stopkey/분석함수·페이징 | G05~G11 |
 | GROUP BY | C08, G01~G04 |
 | 파티션 프루닝 | PT02~PT04 |
 | Full/Partial PWJ | PT05/PT06 |

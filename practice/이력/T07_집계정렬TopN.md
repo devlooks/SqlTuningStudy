@@ -1,6 +1,6 @@
 # 🗂️ T07 GROUP BY / Sort / Top-N — 이력
 
-- **최종 갱신:** 2026-09-18
+- **최종 갱신:** 2026-09-26
 - **사다리 위치:** 3/11 · **상태:** 🔵 진행 중 (현재 테마)
 - **교안:** `SQLP_실기_테마교안.md` §2 T07 · **숙련도:** `SQLP_실기_테마별_숙련도.md` §4·§5·§9
 - **세션 전문:** `이력/_세션전문.md` (시간순 원본)
@@ -21,6 +21,111 @@
 ## 2. 출제 완료 · 미풀이 문항
 
 > 출제는 끝났으나 아직 풀지 않은 문항이다. 풀고 나면 **§2 테마별 이력**과 **§3 세션 전문**으로 옮기고 이 절에서 지운다.
+
+
+### 실기형 — 월간 카테고리별 매출 집계 (차기 세션 1교시)
+
+- **출제일:** 2026-09-26 · **형식:** 표준(실기형) · **난이도:** 고 (집계 위치 판단 → 조인 방식 재판단 → COUNT 변환이 연쇄)
+- **내부 Pattern:** G03, R06, J01, J02, G04 / 타깃 K09, K18, K20~K23, G2-② (사용자 비공개)
+- **사용자에게 이미 제시됨.** 다음 세션에서 아래 문제 본문을 그대로 다시 보여준다.
+
+#### 문제 본문
+
+아래 SQL은 매월 초 전월 매출을 **상품 카테고리별로 집계하는 배치**입니다. 수행 시간이 길어 튜닝이 필요합니다.
+**제약 조건:** 인덱스 추가·변경 불가 / 테이블 구조 변경 불가 / 결과집합(행 수와 각 컬럼 값)은 원본과 같아야 함 / 힌트 사용 가능
+
+```sql
+CREATE TABLE PRODUCT (
+  PROD_ID      NUMBER        NOT NULL,
+  PROD_NM      VARCHAR2(100) NOT NULL,
+  CATEGORY_CD  VARCHAR2(10)  NOT NULL,
+  CONSTRAINT PRODUCT_PK PRIMARY KEY (PROD_ID)       -- 높이 3
+);
+
+CREATE TABLE SALES (
+  SALE_NO   NUMBER       NOT NULL,
+  SALE_DT   VARCHAR2(8)  NOT NULL,                 -- 'YYYYMMDD'
+  PROD_ID   NUMBER       NOT NULL,                 -- FK → PRODUCT
+  SALE_AMT  NUMBER,                                -- NULL 허용
+  CONSTRAINT SALES_PK PRIMARY KEY (SALE_NO)
+);
+
+CREATE INDEX SALES_X1 ON SALES (SALE_DT);           -- 높이 3
+```
+
+| 항목 | 값 |
+|---|---|
+| PRODUCT | 5,000,000건 / 100,000블록 / CATEGORY_CD 종류 50개 |
+| SALES | 20,000,000건 / 200,000블록 / 판매일자 순으로 적재됨 |
+| SALES 2026년 8월분 | 600,000건 |
+| 8월에 팔린 서로 다른 PROD_ID 수 | 5,000개 |
+
+```sql
+SELECT P.CATEGORY_CD,
+       SUM(S.SALE_AMT) AS SALE_AMT,
+       COUNT(*)        AS SALE_CNT
+  FROM SALES S, PRODUCT P
+ WHERE S.SALE_DT BETWEEN '20260801' AND '20260831'
+   AND P.PROD_ID = S.PROD_ID
+ GROUP BY P.CATEGORY_CD;
+```
+
+```text
+---------------------------------------------------------------------------------------
+| Id | Operation                      | Name       | Starts | A-Rows |  Buffers |
+---------------------------------------------------------------------------------------
+|  0 | SELECT STATEMENT               |            |      1 |     50 |  2407502 |
+|  1 |  HASH GROUP BY                 |            |      1 |     50 |  2407502 |
+|  2 |   NESTED LOOPS                 |            |      1 | 600000 |  2407502 |
+|  3 |    TABLE ACCESS BY INDEX ROWID | SALES      |      1 | 600000 |     7502 |
+|* 4 |     INDEX RANGE SCAN           | SALES_X1   |      1 | 600000 |     1502 |
+|  5 |    TABLE ACCESS BY INDEX ROWID | PRODUCT    | 600000 | 600000 |  2400000 |
+|* 6 |     INDEX UNIQUE SCAN          | PRODUCT_PK | 600000 | 600000 |  1800000 |
+---------------------------------------------------------------------------------------
+
+Predicate Information:
+  4 - access("S"."SALE_DT">='20260801' AND "S"."SALE_DT"<='20260831')
+  6 - access("P"."PROD_ID"="S"."PROD_ID")
+```
+
+(Buffers는 자식을 포함한 누적값)
+
+**답안:** `[1] 병목 판단 (40점)` 가장 많은 블록을 직접 읽은 Id와 그 이유 한 줄 / `[2] 개선 SQL (60점)` 힌트 포함 완성 SQL + 튜닝 근거(숫자) + 결과 동일성 근거(행 수·NULL·건수). 한 번에 제출, 첫 제출 기준 채점.
+
+#### 정답 (채점용 · 사용자 비공개)
+
+- **[1]** 병목 **Id 6** `INDEX UNIQUE SCAN PRODUCT_PK` — 자기 Buffers 1,800,000 (74.8%)
+  - 목표 건수: 병목 위에 `HASH GROUP BY`가 있으므로 집계 직전 Id 2 A-Rows 600,000 (K09 개정)
+  - ③ 600,000 ÷ 600,000 = **1배** → 블록 낭비형 / ③' 1,800,000 ÷ 600,000 = **3블록/건** = 회당 3 = 인덱스 높이 → **NL 반복 탐색**
+  - ④ 1,800,000 ÷ 2,407,502 = **74.8%**
+  - 검산: 1,502 + 6,000 + 1,800,000 + 600,000 = 2,407,502
+- **[2] 판단 연쇄**
+  1. R2-집계: B = Id 3 600,000, C = Id 2 600,000 → B ≈ C. PRODUCT 조인은 PK·조건 없음·FK NOT NULL이라 붙이기(K21) → **선집계**
+  2. 선집계 결과 5,000건으로 조인 방식 재판단(R2-집계 ⑥, K18): PRODUCT FULL 100,000블록 ÷ 4 = 25,000 > 5,000 → **NL**
+  3. 바깥 단계: `COUNT(*)` → **`SUM(건수)`** (K22)
+
+```sql
+SELECT /*+ LEADING(S P) USE_NL(P) INDEX(P PRODUCT_PK) */
+       P.CATEGORY_CD,
+       SUM(S.SALE_AMT) AS SALE_AMT,
+       SUM(S.SALE_CNT) AS SALE_CNT                 -- 바깥 COUNT(*) 금지 (K22)
+  FROM (SELECT /*+ NO_MERGE INDEX(S2 SALES_X1) */
+               S2.PROD_ID,
+               SUM(S2.SALE_AMT) AS SALE_AMT,
+               COUNT(*)         AS SALE_CNT
+          FROM SALES S2
+         WHERE S2.SALE_DT BETWEEN '20260801' AND '20260831'
+         GROUP BY S2.PROD_ID) S,                   -- 600,000 → 5,000
+       PRODUCT P
+ WHERE P.PROD_ID = S.PROD_ID
+ GROUP BY P.CATEGORY_CD;
+```
+
+- TO-BE Buffers ≈ 7,502 + 5,000 × 3 + 5,000 = **27,502** (약 87배 개선)
+- 비교안: 선집계 없이 HASH 전환 ≈ 7,502 + 100,000 = 107,502 / 선집계 + HASH ≈ 107,502 → 선집계 + NL이 최선
+- **G1:** LEADING(S P) 사이 조인 조건 P.PROD_ID = S.PROD_ID ✅ / USE_NL + INDEX 짝 모순 없음 ✅ / PRODUCT_PK 실존·선두 PROD_ID ✅ / 5,000 × 4 = 20,000 < 100,000 ✅
+- **G2:** ① 행 수 — FK NOT NULL + PK 조인이라 선집계 전후 모두 행 손실·증폭 없음, 최종 50행 ② NULL — 상품별 SUM은 NULL 무시, 한 상품이 전부 NULL이면 NULL이고 바깥 SUM이 다시 무시하므로 원본과 동일 ③ 건수 — 안 COUNT(*) → 밖 SUM(SALE_CNT). 밖에서 COUNT(*)를 쓰면 카테고리별 **상품 수**가 나와 결과가 깨짐
+- **함정:** 선집계만 하고 HASH 유지 / 선집계 없이 HASH만 전환(Buffers는 같아 보이나 조인 행 600,000) / 바깥 COUNT(*) / NO_MERGE 누락으로 뷰 병합
 
 
 ### SQLP 실기 2회독 — 1교시 3차 드릴 P·Q (SQL 작성 전용)
